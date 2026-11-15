@@ -1,6 +1,6 @@
 -- Run with Lua 5.1 and pass the addon directory as the first argument.
 local fixturePath = (arg[0]:match("^(.*[/\\])") or "") .. "window_fixture.lua"
-local addon, frames, deferred, finderEvents, search = assert(loadfile(fixturePath))(arg[1] or ".")
+local addon, frames, deferred, finderEvents, search, loader = assert(loadfile(fixturePath))(arg[1] or ".")
 
 local function find(kind, label)
     for _, frame in ipairs(frames) do
@@ -8,12 +8,11 @@ local function find(kind, label)
     end
 end
 
-local gear, commentMark
+local gear
 for _, frame in ipairs(frames) do
     if frame.template == "LFGOptionsButton" then gear = frame end
-    if gear and frame.parent == gear and frame ~= gear.Icon then commentMark = frame end
 end
-assert(gear and gear.width == 28 and commentMark and not commentMark:IsVisible())
+assert(gear and gear.width == 28)
 for index, label in ipairs({ "Players", "Groups", "Settings" }) do
     local tab = assert(find("Button", label))
     assert(tab.width == 138 and tab.TOPLEFT[1] == 12 + (index - 1) * 146)
@@ -62,6 +61,15 @@ C_LFGListRoles = { GetRoles = function() return nativeRoles end, SetRoles = func
 end }
 function IsInGroup() return grouped end
 function UnitIsGroupLeader() return leader end
+local groupSize, combat = 2, false
+function GetNumGroupMembers() return groupSize end
+function InCombatLockdown() return combat end
+local activityInfo = C_LFGList.GetActivityInfoTable
+function C_LFGList.GetActivityInfoTable(id)
+    local info = activityInfo(id)
+    if info then info.maxNumPlayers = 5 end
+    return info
+end
 Enum = {
     LFGEntryGeneralPlaystyle = { Learning = 1, FunRelaxed = 2, FunSerious = 3, Expert = 4 },
     LFGEntryVoiceMode = { None = 0, Discord = 1, Legacy = 2, Custom = 3 },
@@ -138,6 +146,33 @@ local function greenStatus()
 end
 assert(redStatus())
 local createListing = C_LFGList.CreateListing
+local clearCreationFields = C_LFGList.ClearCreationTextFields
+local writesBeforeMissingCreate = roleWrites
+C_LFGList.CreateListing = nil
+local available, unavailableReason = addon.CreateListing()
+assert(available == false and unavailableReason and not cleared and roleWrites == writesBeforeMissingCreate,
+    "missing native create control leaves native text and roles alone")
+C_LFGList.CreateListing = createListing
+local nativeGetRoles = C_LFGListRoles.GetRoles
+C_LFGListRoles.GetRoles = function() error("native role read unavailable") end
+assert(not addon.ApplyListingRoleDraft(addon.ListingRoles(), true) and roleWrites == writesBeforeMissingCreate,
+    "borrowing a native form requires readable previous role preferences")
+C_LFGListRoles.GetRoles = nativeGetRoles
+local nativeDraftBeforeFailure = LFGListingFrame
+LFGListingFrame = { ActivityView = { Comment = { EditBox = { GetText = function() return "previous native draft" end } } } }
+for _, clearFields in ipairs({
+    function() error("native clear failure") end,
+    function() return false end,
+    function() end,
+}) do
+    C_LFGList.ClearCreationTextFields = clearFields
+    local accepted, reason = addon.CreateListing()
+    assert(accepted == false and reason and #publications == 0 and submit.enabled,
+        "a failed or ineffective clear never publishes")
+    assert(nativeRoles.healer and not nativeRoles.tank, "a failed preflight clear restores the previous native roles")
+end
+LFGListingFrame = nativeDraftBeforeFailure
+C_LFGList.ClearCreationTextFields = clearCreationFields
 C_LFGList.CreateListing = function() return false end
 submit.scripts.OnClick(submit)
 assert(nativeRoles.healer and not nativeRoles.tank, "explicit refusal restores the prior native roles")
@@ -243,6 +278,10 @@ leader = true
 finderEvents.scripts.OnEvent(finderEvents, "GROUP_ROSTER_UPDATE")
 assert(find("Button", "List Party") == submit)
 assert(friendly:IsVisible() and friendly.enabled)
+groupSize, cleared = 5, false
+local created, reason = addon.CreateListing()
+assert(not created and reason:find("Your party is full", 1, true) and not cleared and #publications == 1)
+groupSize = 2
 friendly:SetChecked(false)
 friendly.scripts.OnClick(friendly)
 submit.scripts.OnClick(submit)
@@ -270,105 +309,275 @@ active = false
 finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
 assert(find("Button", "List Party") == submit and redStatus())
 active, grouped = false, false
-local nativeActivities, focused, style = { 5 }, false, nil
-local nativeComment, commentChanged, nativeHidden = ""
+local nativeActivities, focused, style, nativeCategory = {}, false, nil, nil
+local nativeComment, commentChanged, nativeHidden, nativeShown = ""
 local viewVisible = true
 local edit = {
     IsEnabled = function() return true end,
     SetFocus = function() focused = true end,
+    ClearFocus = function() focused = false end,
     GetText = function() return nativeComment end,
     HookScript = function(_, event, callback) assert(event == "OnTextChanged"); commentChanged = callback end,
 }
 local nativeView = {
     IsShown = function() return true end,
     IsVisible = function() return viewVisible end,
-    HookScript = function(_, event, callback) assert(event == "OnHide"); nativeHidden = callback end,
+    HookScript = function(_, event, callback)
+        if event == "OnShow" then nativeShown = callback
+        else assert(event == "OnHide"); nativeHidden = callback end
+    end,
     Comment = { EditBox = edit },
 }
 LFGListingFrame = {
     IsVisible = function() return true end,
     LoadSoloRoles = function() end,
-    SetAllActivities = function(_, selected) assert(not selected); nativeActivities = {} end,
-    SetCategorySelection = function(_, category)
-        assert(category == addon.dungeonCategory)
-        nativeActivities = { 5 }
+    UpdatePostButtonEnableState = function() end,
+    selectedActivities = 0,
+    IsAnyActivitySelected = function() return #nativeActivities > 0 end,
+    IsActivitySelected = function(_, id)
+        for _, selected in ipairs(nativeActivities) do if selected == id then return true end end
     end,
-    SetActivity = function(_, id, selected) if selected then nativeActivities[#nativeActivities + 1] = id end end,
+    GetCategorySelection = function() return nativeCategory end,
+    ClearCategorySelection = function(self) self:SetCategorySelection(nil) end,
+    SetDirty = function(self, dirty) self.dirty = dirty end,
+    SetAllActivities = function(self, selected)
+        assert(not selected)
+        self.selectedActivities = self.selectedActivities - #nativeActivities
+        nativeActivities = {}
+    end,
+    SetCategorySelection = function(self, category)
+        nativeCategory = category
+        nativeActivities = {}
+    end,
+    SetActivity = function(self, id, selected)
+        if selected then
+            nativeActivities[#nativeActivities + 1] = id
+            self.selectedActivities = self.selectedActivities + 1
+            self.dirty = true
+        end
+        self:UpdatePostButtonEnableState()
+    end,
     ActivityView = nativeView,
-    NewPlayerFriendlyButton = { CheckButton = { SetChecked = function(_, value) nativeView.friendly = value end } },
+    voiceMode = Enum.LFGEntryVoiceMode.Legacy,
+    NewPlayerFriendlyButton = { CheckButton = {
+        GetChecked = function() return nativeView.friendly == true end,
+        SetChecked = function(_, value) nativeView.friendly = value end,
+    } },
 }
 function LFGVanilla_ToggleFrame() end
 function LFGParentFrameTab1_OnClick() end
 function LFGListingActivityView_UpdateActivities() end
-function LFGListingActivityView_OnPlayStyleSelectedInternal(_, value) style = value end
-local guidance
-UIErrorsFrame = { AddMessage = function(_, value) guidance = value end }
-openComment()
-assert(find("FontString", "Listing comment") and not focused and #nativeActivities == 1)
-for _, frame in ipairs(frames) do
-    if frame.kind == "EditBox" and frame:IsVisible() and frame:GetText() == "" then
-        frame:SetText("First run draft.")
-        frame.scripts.OnTextChanged(frame, true)
-        break
-    end
+function LFGListingActivityView_OnPlayStyleSelectedInternal(view, value)
+    view.generalPlaystyle, style = value, value
 end
-assert(addon.db.listingComment == "First run draft.")
-find("Button", "Players").scripts.OnClick()
-friendly:SetChecked(true)
-friendly.scripts.OnClick(friendly)
-sentRoles = nil
-submit.scripts.OnClick(submit)
-assert(focused and #publications == 2 and #nativeActivities == 2, "open native composer without publishing")
+local actualComment = CreateFrame("ScrollFrame", nil, LFGParentFrame)
+actualComment.EditBox = edit
+actualComment:SetFrameLevel(8)
+actualComment:SetPoint("BOTTOM", 0, 42)
+local actualPost = CreateFrame("Button", nil, LFGParentFrame)
+actualPost:SetFrameLevel(4)
+actualPost:SetPoint("BOTTOMRIGHT", -24, 19)
+actualPost:SetText("List Self")
+local nativePostClicks = 0
+local nativePost = function() nativePostClicks = nativePostClicks + 1 end
+actualPost:SetScript("OnClick", nativePost)
+nativeView.Comment = actualComment
+LFGListingFrame.PostButton = actualPost
+C_LFGList.ClearCreationTextFields = function()
+    cleared = true
+    nativeComment = ""
+end
+
+local function assertInline()
+    assert(find("FontString", "Listing comment") and not submit:IsVisible())
+    assert(actualComment:GetFrameStrata() == "DIALOG" and actualPost:GetFrameStrata() == "DIALOG")
+    local composer = actualComment.TOPLEFT[1]
+    assert(composer:IsVisible() and actualComment.TOPRIGHT[1] == composer)
+    assert(actualComment:GetFrameLevel() > composer:GetFrameLevel())
+    assert(actualPost.TOPRIGHT[1] == composer and actualPost.TOPRIGHT[4] == -55)
+end
+
+local function assertRestored()
+    assert(actualComment:GetFrameLevel() == 8 and actualPost:GetFrameLevel() == 4)
+    assert(actualComment:GetFrameStrata() == "MEDIUM" and actualPost:GetFrameStrata() == "MEDIUM")
+    local _, commentParent, _, _, commentY = actualComment:GetPoint(1)
+    local _, postParent, _, _, postY = actualPost:GetPoint(1)
+    assert(commentParent == LFGParentFrame and commentY == 42 and postParent == LFGParentFrame and postY == 19)
+end
+
+local settings = assert(find("Button", "Settings"))
+LFGListingFrame:SetCategorySelection(9)
+LFGListingFrame:SetActivity(5, true)
+nativeComment = "Unrelated Blizzard draft"
+local writesBeforeSettings = roleWrites
+settings.scripts.OnClick()
+assert(nativeCategory == 9 and nativeActivities[1] == 5 and nativeComment == "Unrelated Blizzard draft")
+assert(roleWrites == writesBeforeSettings and find("Button", "Open Blizzard form"),
+    "visiting Settings preserves an unrelated Blizzard draft")
+assert(find("Button", "Players")).scripts.OnClick()
+LFGListingFrame:SetAllActivities(false)
+LFGListingFrame:ClearCategorySelection()
+LFGListingFrame:SetDirty(false)
+nativeComment = ""
+C_LFGListRoles.SetRoles({ tank = false, healer = true, dps = false }, false)
+
+settings.scripts.OnClick()
+assertInline()
+assert(not focused and not addon.db.listingComment and #publications == 2,
+    "the real field is present on first opening Settings without a saved draft")
 assert(nativeActivities[1] == 1 and nativeActivities[2] == 3)
-assert(nativeView.friendly == true, "native composer receives the same flag")
-assert(sentRoles.tank and not sentRoles.healer and not sentRoles.dps, "native composer receives the same manual role")
-assert(guidance and guidance:find("listing button", 1, true))
+assert(sentRoles.tank and not sentRoles.healer and not sentRoles.dps)
 assert(style == Enum.LFGEntryGeneralPlaystyle.Learning and LFGListingFrame.voiceMode == Enum.LFGEntryVoiceMode.Discord)
 nativeComment = "First run, please wait for mana."
 commentChanged(edit, true)
-assert(addon.db.listingComment == nativeComment)
 local savedDraft = nativeComment
+assert(addon.db.listingComment == savedDraft)
+actualComment:ClearAllPoints()
+actualComment:SetPoint("BOTTOM", 0, 42)
+nativeShown()
+assertInline()
+
+assert(find("Button", "Players")).scripts.OnClick()
+assertRestored()
+assert(submit:IsVisible() and not focused)
+assert(nativeCategory == nil and #nativeActivities == 0 and not LFGListingFrame.dirty and nativeComment == "")
+assert(LFGListingFrame.selectedActivities == 0, "restoring the blank category must also release its activity count")
+assert(nativeRoles.healer and not nativeRoles.tank and style == nil
+    and LFGListingFrame.voiceMode == Enum.LFGEntryVoiceMode.Legacy, "abandoning the editor restores the borrowed native state")
+
+local setActivity = LFGListingFrame.SetActivity
+LFGListingFrame.SetActivity = function() error("activity changed during setup") end
+settings.scripts.OnClick()
+assertRestored()
+assert(nativeCategory == nil and nativeRoles.healer and not nativeRoles.tank)
+assert(find("Button", "Open Blizzard form"):IsVisible())
+LFGListingFrame.SetActivity = setActivity
+find("Button", "Players").scripts.OnClick()
+
+settings.scripts.OnClick()
+assertInline()
+nativeComment = "A newer Blizzard draft"
+LFGListingFrame:SetAllActivities(false)
+LFGListingFrame:SetActivity(4, true)
+assertRestored()
+assert(find("Button", "Open comment field"):IsVisible(), "a native activity change removes the embedded Post")
+find("Button", "Players").scripts.OnClick()
+assertRestored()
+assert(nativeCategory == addon.dungeonCategory and nativeActivities[1] == 4
+    and nativeComment == "A newer Blizzard draft")
+LFGListingFrame:SetAllActivities(false)
+LFGListingFrame:ClearCategorySelection()
+LFGListingFrame:SetDirty(false)
+nativeComment = ""
+
+settings.scripts.OnClick()
+assertInline()
+C_LFGListRoles.SetRoles({ tank = false, healer = true, dps = false }, false)
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ROLE_UPDATE")
+assertRestored()
+assert(nativeRoles.healer and not nativeRoles.tank, "role changes remove Post and preserve the new native role")
+find("Button", "Players").scripts.OnClick()
+LFGListingFrame:SetAllActivities(false)
+LFGListingFrame:ClearCategorySelection()
+LFGListingFrame:SetDirty(false)
+LFGListingFrame.voiceMode = Enum.LFGEntryVoiceMode.Legacy
+
+settings.scripts.OnClick()
+assertInline()
+addon.SetAutomaticDungeonSelection(true)
+addon.Refresh()
+assertRestored()
+local retryComment = assert(find("Button", "Open comment field"))
+assert(retryComment:IsVisible())
+retryComment.scripts.OnClick()
+assertInline()
+assert(#nativeActivities == 1 and nativeActivities[1] == addon.SelectedActivities()[1].id)
+assert(style == Enum.LFGEntryGeneralPlaystyle.Learning and LFGListingFrame.voiceMode == Enum.LFGEntryVoiceMode.Discord)
+nativeComment = "Draft retained after an activity refresh"
+commentChanged(edit, true)
 viewVisible = false
+LFGListingFrame:ClearCategorySelection()
+LFGListingActivityView_OnPlayStyleSelectedInternal(nativeView, Enum.LFGEntryGeneralPlaystyle.Expert)
 nativeHidden()
 deferred[#deferred]()
+assertRestored()
+assert(retryComment:IsVisible(), "the editor can reopen after Blizzard resets its activity view")
+assert(LFGListingFrame.selectedActivities == 0 and nativeComment == ""
+    and not LFGListingFrame.dirty and addon.db.listingComment == "Draft retained after an activity refresh")
+assert(style == Enum.LFGEntryGeneralPlaystyle.Expert and LFGListingFrame.voiceMode == Enum.LFGEntryVoiceMode.Legacy,
+    "reset restores owned options and preserves externally updated options")
 viewVisible = true
-nativeComment = "Unrelated Blizzard draft"
-commentChanged(edit, true)
-assert(addon.db.listingComment == savedDraft, "typing in a later native composer cannot overwrite the draft")
-nativeComment = savedDraft
-local getActiveEntry = C_LFGList.GetActiveEntryInfo
-active = true
-C_LFGList.GetActiveEntryInfo = function() return { activityIDs = { 1, 3 }, comment = "Other leader's listing" } end
-finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
-assert(addon.db.listingComment == savedDraft, "unrelated listing events do not replace the draft")
-active = false
-C_LFGList.GetActiveEntryInfo = getActiveEntry
-SlashCmdList.PARTYFINDERFOREVER()
-assert(gear:IsVisible() and commentMark:IsVisible())
-addon.InitializeSettings()
-assert(addon.db.listingComment == nativeComment)
-nativeComment = ""
-local ok, _, needsComment = addon.CreateListing()
-assert(not ok and needsComment and #publications == 2, "missing native draft must not publish without saved comment")
-nativeComment = addon.db.listingComment
-cleared = false
-C_LFGList.CreateListing = function(data)
-    assert(not cleared and nativeComment == addon.db.listingComment)
-    publications[#publications + 1] = data
-    return true
+retryComment.scripts.OnClick()
+assertInline()
+local setPostStrata = actualPost.SetFrameStrata
+function actualPost:SetFrameStrata(strata)
+    if combat then error("native frame layer temporarily locked") end
+    return setPostStrata(self, strata)
 end
-assert(addon.CreateListing() and #publications == 3)
+combat = true
+loader.scripts.OnEvent(loader, "PLAYER_REGEN_DISABLED")
+assert(actualComment:GetFrameStrata() == "MEDIUM" and actualPost:GetFrameStrata() == "DIALOG")
+assert(not retryComment:IsVisible() and nativeCategory == addon.dungeonCategory)
+combat = false
+loader.scripts.OnEvent(loader, "PLAYER_REGEN_ENABLED")
+assertRestored()
+actualPost.SetFrameStrata = setPostStrata
+assert(retryComment:IsVisible() and nativeCategory == nil)
+retryComment.scripts.OnClick()
+assertInline()
+addon.db.listingComment = savedDraft
+addon.SetAutomaticDungeonSelection(false)
+find("Button", "Players").scripts.OnClick()
+
+nativeComment = "A stale native value"
+cleared = false
+submit.scripts.OnClick(submit)
+assert(cleared and nativeComment == "" and #publications == 3 and submit:IsVisible(),
+    "List Me publishes without comments even with a saved draft and text in the native field")
+assert(addon.db.listingComment == savedDraft)
 active = true
 finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
 active = false
-SlashCmdList.PARTYFINDERFOREVER("settings")
-local savedEdit = assert(find("EditBox", nativeComment))
-assert(not find("Button", "Remove"))
-savedEdit:SetText("")
-savedEdit.scripts.OnTextChanged(savedEdit, true)
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+
+openComment()
+assertInline()
+assert(focused and find("FontString", savedDraft))
+nativeComment = "New comment typed into the genuine field."
+commentChanged(edit, true)
+assert(addon.db.listingComment == nativeComment)
+actualPost.scripts.OnClick(actualPost)
+active = true
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+assert(nativePostClicks == 1 and not focused)
+assertRestored()
+assert(nativeCategory == addon.dungeonCategory and #nativeActivities == 2
+    and nativeComment == addon.db.listingComment, "a posted listing keeps its native state")
+active = false
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+assert(retryComment:IsVisible(), "Settings can reopen the comment field after the listing ends")
 find("Button", "Players").scripts.OnClick()
-assert(not cleared and addon.db.listingComment == nil and gear:IsVisible() and not commentMark:IsVisible(),
-    "clearing the addon's draft does not wipe independent native editor fields")
+
+settings.scripts.OnClick()
+assertInline()
+find("Button", "Open Blizzard form").scripts.OnClick()
+assertRestored()
+assert(focused and not submit:IsVisible())
+SlashCmdList.PARTYFINDERFOREVER("settings")
+assertInline()
+
+find("Button", "Players").scripts.OnClick()
+local setPostLevel = actualPost.SetFrameLevel
+actualPost.SetFrameLevel = function(self, level)
+    if level > 4 then return end
+    setPostLevel(self, level)
+end
+settings.scripts.OnClick()
+assertRestored()
+assert(find("Button", "Open Blizzard form") and not submit:IsVisible(),
+    "when native controls cannot mount, Settings keeps the explicit fallback")
+actualPost.SetFrameLevel = setPostLevel
+find("Button", "Players").scripts.OnClick()
 
 function UnitFactionGroup() return "Horde" end
 local searchResults = {

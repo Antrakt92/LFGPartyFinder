@@ -4,7 +4,9 @@ local title = "LFG Party Finder"
 local currentView, roleFilters = "players", {}
 local groupRoleFilters, roomForMe = {}, false
 local window, nativeLauncher
-local commentEdit, nativeDraft
+local commentEdit, commentPost, commentListing, nativeDraft, inlineComposer
+local deferredNativeDraft, deferredComposer
+local OpenListingDetails, RefreshCommentEditor
 local openingNativeFromAddon
 local classPage, classPageCount = 1, 1
 local parts = {}
@@ -529,13 +531,9 @@ function addon.Refresh()
     local label = activities[1] and activities[1].name or "Choose dungeons"
     if #activities > 1 then label = label .. " +" .. (#activities - 1) end
     parts.activity:OverrideText(label)
+    if currentView == "settings" then RefreshCommentEditor(activities) end
     local showListing = currentView ~= "settings" and (#activities > 0 or active == true or waiting ~= nil)
     parts.listingControls:SetShown(showListing)
-    local savedComment = read(addon.db.listingComment, "string")
-    parts.savedCommentMark:SetShown(savedComment ~= nil)
-    if parts.savedComment:GetText() ~= (savedComment or "") then
-        parts.savedComment:SetText(savedComment or "")
-    end
     parts.myRoles:SetShown(currentView == "groups" or (showListing and grouped == false))
     parts.myRolesLabel:SetText(listedSolo and "Listed" or "My roles")
     for _, role in ipairs(addon.roles) do
@@ -586,20 +584,22 @@ local function SearchOnFirstOpen()
     end
 end
 
-local function SelectView(view)
+local function SelectView(view, focusComment)
     if currentView == view then return end
+    if inlineComposer then addon.EndNativeDraft() end
     currentView = view
     parts.results:SetVerticalScroll(0)
     addon.Refresh()
+    if view == "settings" then OpenListingDetails(focusComment) end
     SearchOnFirstOpen()
 end
 
-local function OpenNativeListing()
+local function OpenNativeListing(keepOverlay)
     if InCombatLockdown() then
         print(title .. ": open Group Finder after combat.")
         return
     end
-    nativeDraft = nil
+    addon.EndNativeDraft()
     if not LFGParentFrame then GroupFinderVanillaStyle_LoadUI() end
     if not LFGVanilla_ToggleFrame then return end
     if LFGParentFrame and LFGParentFrame:IsShown() then
@@ -611,83 +611,367 @@ local function OpenNativeListing()
         if not ok then error(reason, 0) end
     end
     if LFGParentFrame and LFGParentFrame:IsVisible() then
-        if window then window:Hide() end
+        if window and not keepOverlay then window:Hide() end
         return true
     end
 end
 
+local function RestoreCommentControls(composer)
+    local restored = true
+    for _, original in ipairs(composer.frames) do
+        local frame = original.frame
+        local anchors = pcall(function()
+            frame:ClearAllPoints()
+            for _, point in ipairs(original.points) do frame:SetPoint(unpack(point, 1, 5)) end
+        end)
+        local strata = pcall(frame.SetFrameStrata, frame, original.strata)
+        local level = pcall(frame.SetFrameLevel, frame, original.level)
+        restored = restored and anchors and strata and level
+            and frame:GetFrameStrata() == original.strata and frame:GetFrameLevel() == original.level
+    end
+    return restored
+end
+
+local function CloseInlineComposer()
+    local composer = inlineComposer
+    if not composer then return end
+    inlineComposer = nil
+    parts.commentComposer:Hide()
+    parts.commentFallback:Hide()
+    parts.commentHint:Show()
+    if not RestoreCommentControls(composer) and InCombatLockdown() then deferredComposer = composer end
+end
+
+local function NativeDraftMatches(listing, data)
+    local view = listing.ActivityView
+    local friendly = listing.NewPlayerFriendlyButton and listing.NewPlayerFriendlyButton.CheckButton
+    if read(listing:GetCategorySelection(), "number") ~= addon.dungeonCategory
+        or read(view.generalPlaystyle, "number") ~= data.generalPlaystyle
+        or read(listing.voiceMode, "number") ~= data.voiceMode
+        or read(listing.selectedActivities, "number") ~= #data.activityIDs
+        or not friendly or read(friendly:GetChecked(), "boolean") ~= data.newPlayerFriendly then return false end
+    for _, id in ipairs(data.activityIDs) do
+        if read(listing:IsActivitySelected(id), "boolean") ~= true then return false end
+    end
+    return true
+end
+
+local function NativeDraftRolesMatch(roles)
+    if not roles then return true end
+    local native = addon.NativeListingRoles()
+    return native and roles.tank == native.tank and roles.healer == native.healer and roles.dps == native.dps
+end
+
+local function RestoreNativeDraftOptions(listing, before, applied)
+    local view = listing.ActivityView
+    if not applied or read(view.generalPlaystyle, "number") == applied.generalPlaystyle then
+        LFGListingActivityView_OnPlayStyleSelectedInternal(view, before.playstyle)
+        if view.PlayStyleDropdown then view.PlayStyleDropdown:GenerateMenu() end
+    end
+    if not applied or read(listing.voiceMode, "number") == applied.voiceMode then
+        listing.voiceMode = before.voice
+        if view.VoiceChatDropdown then view.VoiceChatDropdown:GenerateMenu() end
+    end
+    local friendly = listing.NewPlayerFriendlyButton and listing.NewPlayerFriendlyButton.CheckButton
+    if friendly and before.friendly ~= nil
+        and (not applied or read(friendly:GetChecked(), "boolean") == applied.newPlayerFriendly) then
+        friendly:SetChecked(before.friendly)
+    end
+end
+
+local function RestoreNativeDraft(draft)
+    if not draft or draft.postAttempted or not draft.original then return end
+    local listing, before = draft.listing, draft.original
+    if listing ~= LFGListingFrame then return end
+    local grouped, active = addon.ListingState()
+    if active ~= false or grouped ~= draft.grouped then return end
+
+    local comment = addon.NativeListingComment()
+    local category = listing:GetCategorySelection()
+    if category ~= addon.dungeonCategory then
+        -- Blizzard can discard the selection table without releasing its count.
+        if not category and not listing:IsAnyActivitySelected()
+            and (comment == "" or comment == draft.text) then
+            if draft.prepared and read(listing.selectedActivities, "number") == #draft.data.activityIDs then
+                listing.selectedActivities = before.count
+                listing:SetDirty(false)
+                RestoreNativeDraftOptions(listing, before, draft.data)
+            end
+            if comment ~= "" then pcall(C_LFGList.ClearCreationTextFields) end
+            addon.RestoreListingRoleDraft(draft.roleChange)
+        end
+        return
+    end
+    if draft.prepared and (not NativeDraftMatches(listing, draft.data)
+        or not NativeDraftRolesMatch(draft.roles)
+        or comment ~= draft.text) then return end
+    if comment ~= "" then
+        local cleared = pcall(C_LFGList.ClearCreationTextFields)
+        if not cleared or addon.NativeListingComment() ~= "" then return end
+    end
+    addon.RestoreListingRoleDraft(draft.roleChange)
+    listing:SetAllActivities(false)
+    if before.category then
+        listing:SetCategorySelection(before.category)
+    else
+        listing:ClearCategorySelection()
+    end
+    RestoreNativeDraftOptions(listing, before)
+    listing:SetDirty(false)
+end
+
 function addon.EndNativeDraft()
+    local draft = nativeDraft
     nativeDraft = nil
+    if inlineComposer then
+        CloseInlineComposer()
+        local _, active = addon.ListingState()
+        if active == true then
+            parts.commentBlocked = true
+            parts.commentHint:SetText("Unlist before writing a new comment.")
+        end
+    end
+    if draft then
+        draft.edit:ClearFocus()
+        if InCombatLockdown() then
+            deferredNativeDraft = draft
+        else
+            RestoreNativeDraft(draft)
+        end
+    end
+end
+
+local function PositionCommentControls(composer)
+    local pane = parts.commentComposer
+    local comment, post = composer.frames[1].frame, composer.frames[2].frame
+    comment:ClearAllPoints()
+    comment:SetPoint("TOPLEFT", pane, "TOPLEFT", 0, 0)
+    comment:SetPoint("TOPRIGHT", pane, "TOPRIGHT", 0, 0)
+    post:ClearAllPoints()
+    post:SetPoint("TOPRIGHT", pane, "TOPRIGHT", 0, -55)
+end
+
+local function ShowInlineComposer(comment, post)
+    local pane = parts.commentComposer
+    if not pane or not window:IsVisible() or not post or not post:IsVisible() then return false end
+    local composer = { frames = {} }
+    local ok = pcall(function()
+        for _, frame in ipairs({ comment, post }) do
+            local strata = read(frame:GetFrameStrata(), "string")
+            local level = read(frame:GetFrameLevel(), "number")
+            if not strata or not level then error("Native frame layer unavailable") end
+            local points = {}
+            for i = 1, frame:GetNumPoints() do points[i] = { frame:GetPoint(i) } end
+            composer.frames[#composer.frames + 1] = { frame = frame, strata = strata, level = level, points = points }
+        end
+        local strata, level = window:GetFrameStrata(), pane:GetFrameLevel() + 2
+        for _, entry in ipairs(composer.frames) do
+            local frame = entry.frame
+            frame:SetFrameStrata(strata)
+            frame:SetFrameLevel(level)
+            if frame:GetFrameStrata() ~= strata or frame:GetFrameLevel() < level then
+                error("Native frame could not be raised")
+            end
+        end
+        PositionCommentControls(composer)
+    end)
+    if #composer.frames > 0 then inlineComposer = composer end
+    if not ok then
+        CloseInlineComposer()
+        return false
+    end
+
+    local saved = read(addon.db.listingComment, "string")
+    parts.commentReference:SetText(saved and saved:gsub("|", "||") or "")
+    parts.commentHint:Hide()
+    pane:Show()
+    parts.commentFallback:Show()
+    return true
 end
 
 local function ListingError(reason)
     UIErrorsFrame:AddMessage(reason, 1, 0.32, 0.24)
 end
 
-local function OpenListingDetails()
+OpenListingDetails = function(focus)
+    if inlineComposer then
+        if focus and nativeDraft then nativeDraft.edit:SetFocus() end
+        return
+    end
+    parts.commentFallback:Hide()
+    parts.commentRetry:Hide()
+    parts.commentBlocked = nil
     local activities = addon.SelectedActivities()
     local allowed, reason = addon.CanCreateListing(activities)
-    if not allowed then ListingError(reason); return end
+    if not allowed then
+        parts.commentHint:SetText(reason)
+        parts.commentBlocked = true
+        return
+    end
+    local listing = LFGListingFrame
+    if not listing then
+        parts.commentHint:SetText("WoW's comment field is unavailable.")
+        return
+    end
+    if C_LFGList.IsPlayerAuthenticatedForLFG
+        and read(C_LFGList.IsPlayerAuthenticatedForLFG(addon.dungeonCategory), "boolean") == false then
+        parts.commentHint:SetText("WoW requires account authentication for listing comments.")
+        return
+    end
+    local view = listing.ActivityView
+    local edit, post = view.Comment.EditBox, listing.PostButton
     local grouped = addon.ListingState()
     local roles = addon.ListingRoles()
     if grouped == false and not (roles.tank or roles.healer or roles.dps) then
-        ListingError("Choose at least one role.")
+        parts.commentHint:SetText("Choose at least one listing role.")
         return
     end
-    if not OpenNativeListing() or not LFGListingFrame:IsVisible() then return end
-
-    if grouped == false then
-        if not addon.ApplySoloListingRoles(roles) then
-            ListingError("WoW did not accept those roles.")
+    local category = listing:GetCategorySelection()
+    local data = addon.ListingData(activities)
+    local friendlyButton = listing.NewPlayerFriendlyButton and listing.NewPlayerFriendlyButton.CheckButton
+    local draft = { edit = edit, listing = listing, data = data, grouped = grouped,
+        roles = grouped == false and roles or nil, text = "" }
+    local nativeComment = addon.NativeListingComment()
+    local occupied = listing.dirty or listing:IsAnyActivitySelected() or nativeComment ~= ""
+    if occupied then
+        if not NativeDraftMatches(listing, data) or not NativeDraftRolesMatch(draft.roles) then
+            parts.commentHint:SetText("A different Blizzard listing draft is already open.")
+            parts.commentFallback:Show()
             return
         end
-        LFGListingFrame:LoadSoloRoles()
+    else
+        draft.original = {
+            category = category, playstyle = view.generalPlaystyle, voice = listing.voiceMode,
+            friendly = friendlyButton and read(friendlyButton:GetChecked(), "boolean"),
+            count = read(listing.selectedActivities, "number") or 0,
+        }
+    end
+    if not OpenNativeListing(true) or not listing:IsVisible() then
+        parts.commentHint:SetText("WoW's comment field is unavailable.")
+        return
     end
 
-    local data = addon.ListingData(activities)
-    LFGListingFrame:SetCategorySelection(addon.dungeonCategory)
-    LFGListingFrame:SetAllActivities(false)
-    for _, id in ipairs(data.activityIDs) do LFGListingFrame:SetActivity(id, true, true, true) end
-    local view = LFGListingFrame.ActivityView
-    LFGListingActivityView_OnPlayStyleSelectedInternal(view, data.generalPlaystyle)
-    if view.PlayStyleDropdown then view.PlayStyleDropdown:GenerateMenu() end
-    LFGListingFrame.voiceMode = data.voiceMode
-    local friendlyButton = LFGListingFrame.NewPlayerFriendlyButton
-    if friendlyButton and friendlyButton.CheckButton then
-        friendlyButton.CheckButton:SetChecked(data.newPlayerFriendly)
+    if draft.original then
+        local ok, prepared = pcall(function()
+            listing:SetCategorySelection(addon.dungeonCategory)
+            if grouped == false then
+                local rolesApplied
+                rolesApplied, draft.roleChange = addon.ApplyListingRoleDraft(roles, true)
+                if not rolesApplied then return false end
+                listing:LoadSoloRoles()
+            end
+            listing:SetAllActivities(false)
+            for _, id in ipairs(data.activityIDs) do listing:SetActivity(id, true, true, true) end
+            LFGListingActivityView_OnPlayStyleSelectedInternal(view, data.generalPlaystyle)
+            if view.PlayStyleDropdown then view.PlayStyleDropdown:GenerateMenu() end
+            listing.voiceMode = data.voiceMode
+            if friendlyButton then friendlyButton:SetChecked(data.newPlayerFriendly) end
+            if view.VoiceChatDropdown then view.VoiceChatDropdown:GenerateMenu() end
+            return NativeDraftMatches(listing, data) and NativeDraftRolesMatch(draft.roles)
+        end)
+        if not ok or not prepared then
+            pcall(RestoreNativeDraft, draft)
+            parts.commentHint:SetText("WoW could not prepare the listing form.")
+            parts.commentFallback:Show()
+            return
+        end
+        draft.prepared = true
     end
-    if view.VoiceChatDropdown then view.VoiceChatDropdown:GenerateMenu() end
     if view:IsShown() then
         LFGListingActivityView_UpdateActivities(view)
-        local edit = view.Comment.EditBox
+        if commentListing ~= listing then
+            commentListing = listing
+            hooksecurefunc(listing, "UpdatePostButtonEnableState", function(self)
+                if nativeDraft and nativeDraft.listing == self and inlineComposer then
+                    RefreshCommentEditor(addon.SelectedActivities())
+                end
+            end)
+        end
+        if post and commentPost ~= post then
+            commentPost = post
+            post:HookScript("OnClick", function()
+                -- The click can be followed by a delayed server response.
+                if inlineComposer and nativeDraft then nativeDraft.postAttempted = true end
+            end)
+        end
         if commentEdit ~= edit then
             commentEdit = edit
             edit:HookScript("OnTextChanged", function(self, fromUser)
                 if not fromUser or not nativeDraft or nativeDraft.edit ~= self or not view:IsVisible() then return end
                 local _, active = addon.ListingState()
-                if active ~= false then nativeDraft = nil; return end
+                if active ~= false then addon.EndNativeDraft(); return end
                 local value = addon.NativeListingComment()
-                if value ~= nil then addon.SaveListingComment(value) end
+                if value ~= nil then
+                    nativeDraft.text = value
+                    addon.SaveListingComment(value)
+                end
+            end)
+            view:HookScript("OnShow", function()
+                local composer = inlineComposer
+                if composer and nativeDraft and nativeDraft.edit == edit then
+                    if NativeDraftMatches(nativeDraft.listing, nativeDraft.data) and NativeDraftRolesMatch(nativeDraft.roles)
+                        and pcall(PositionCommentControls, composer) then return end
+                    addon.EndNativeDraft()
+                    parts.commentHint:SetText("WoW refreshed the listing form.")
+                    parts.commentBlocked = true
+                    RefreshCommentEditor(addon.SelectedActivities())
+                end
             end)
             view:HookScript("OnHide", function()
                 local draft = nativeDraft
                 if not draft or draft.edit ~= edit then return end
                 -- Blizzard briefly hides and shows this view during roster updates.
                 C_Timer.After(0, function()
-                    if nativeDraft == draft and not view:IsVisible() then nativeDraft = nil end
+                    if nativeDraft ~= draft or view:IsVisible() then return end
+                    local wasInline = inlineComposer ~= nil
+                    addon.EndNativeDraft()
+                    if wasInline and window:IsVisible() and currentView == "settings" then
+                        parts.commentHint:SetText("WoW refreshed the listing form.")
+                        parts.commentBlocked = true
+                        RefreshCommentEditor(addon.SelectedActivities())
+                    end
                 end)
             end)
         end
         if edit:IsEnabled() then
-            nativeDraft = { edit = edit }
-            edit:SetFocus()
-            local post = LFGListingFrame.PostButton
-            local label = post and read(post:GetText(), "string")
-            UIErrorsFrame:AddMessage("Enter your saved comment here, then click " .. (label or "the listing button") .. ".",
-                1, 0.82, 0)
+            local embedded = ShowInlineComposer(view.Comment, post)
+            if embedded then
+                nativeDraft = draft
+                if focus then edit:SetFocus() end
+            else
+                RestoreNativeDraft(draft)
+                parts.commentHint:SetText("Open the Blizzard form to add a comment.")
+                parts.commentFallback:Show()
+            end
         else
-            ListingError("WoW has disabled the comment field for this listing.")
+            RestoreNativeDraft(draft)
+            parts.commentHint:SetText("WoW has disabled the comment field for this listing.")
         end
+    else
+        RestoreNativeDraft(draft)
+        parts.commentHint:SetText("WoW's comment field is unavailable.")
+    end
+end
+
+RefreshCommentEditor = function(activities)
+    if inlineComposer and nativeDraft then
+        local allowed, reason = addon.CanCreateListing(activities)
+        local ids = nativeDraft.data.activityIDs
+        local changed = #activities ~= #ids
+        for index, activity in ipairs(activities) do
+            if activity.id ~= ids[index] then changed = true; break end
+        end
+        if allowed and not changed and addon.ListingState() == nativeDraft.grouped
+            and NativeDraftMatches(nativeDraft.listing, nativeDraft.data)
+            and NativeDraftRolesMatch(nativeDraft.roles) then return end
+        addon.EndNativeDraft()
+        parts.commentHint:SetText(reason or "Listing selections changed.")
+        parts.commentBlocked = true
+    end
+    if parts.commentBlocked then
+        local allowed, reason = addon.CanCreateListing(activities)
+        parts.commentHint:SetText(allowed and "Open the comment field to continue." or reason)
+        parts.commentRetry:SetShown(allowed == true)
     end
 end
 
@@ -743,21 +1027,38 @@ local function BuildSettings(parent)
     template(233, "askText", "Ask to join message", "%level%   %talents%   %class%")
     local caption = text(pane, "Listing comment")
     caption:SetPoint("TOPLEFT", 12, -327)
-    local edit = CreateFrame("EditBox", nil, pane, "InputBoxTemplate")
-    edit:SetSize(377, 28)
-    edit:SetPoint("TOPLEFT", caption, "BOTTOMLEFT", 5, -7)
-    edit:SetAutoFocus(false)
-    edit:SetMaxLetters(255)
-    edit:SetScript("OnTextChanged", function(self, fromUser)
-        if not fromUser then return end
-        local value = self:GetText()
-        if canaccessvalue(value) and type(value) == "string" then addon.SaveListingComment(value) end
+    local hint = text(pane, "", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", caption, "BOTTOMLEFT", 5, -9)
+    parts.commentHint = hint
+
+    local composer = CreateFrame("Frame", nil, pane)
+    composer:SetPoint("TOPLEFT", caption, "BOTTOMLEFT", 5, -7)
+    composer:SetSize(377, 86)
+    local reference = text(composer, "", "GameFontDisableSmall")
+    reference:SetPoint("TOPLEFT", caption, "TOPLEFT", 110, 0)
+    reference:SetPoint("TOPRIGHT", pane, "TOPRIGHT", -17, -327)
+    reference:SetWordWrap(false)
+    parts.commentReference = reference
+
+    local useNative = button(pane, "Open Blizzard form", 118, function()
+        local draft = nativeDraft
+        CloseInlineComposer()
+        if draft then draft.original = nil end
+        if not LFGListingFrame or not LFGListingFrame:IsVisible() then
+            LFGParentFrameTab1_OnClick()
+        end
+        window:Hide()
+        if draft then draft.edit:SetFocus() end
     end)
-    edit:SetScript("OnEnterPressed", edit.ClearFocus)
-    edit:SetScript("OnEscapePressed", edit.ClearFocus)
-    parts.savedComment = edit
-    local hint = text(pane, "Saved here. WoW may ask you to enter it again when listing.", "GameFontDisableSmall")
-    hint:SetPoint("TOPLEFT", edit, "BOTTOMLEFT", 0, -6)
+    useNative:SetPoint("TOPLEFT", composer, "TOPLEFT", 0, -55)
+    useNative:Hide()
+    parts.commentFallback = useNative
+    local retry = button(pane, "Open comment field", 118, function() OpenListingDetails(true) end)
+    retry:SetPoint("TOPLEFT", composer, "TOPLEFT", 0, -55)
+    retry:Hide()
+    parts.commentRetry = retry
+    composer:Hide()
+    parts.commentComposer = composer
     return pane
 end
 
@@ -769,12 +1070,6 @@ local function BuildListingControls(parent)
     options:SetSize(28, toolbarButtonHeight)
     options.Icon:SetSize(16, 16)
     options.Icon:SetPoint("CENTER")
-    local mark = options:CreateTexture(nil, "OVERLAY")
-    mark:SetSize(5, 5)
-    mark:SetPoint("TOPRIGHT", -3, -3)
-    mark:SetColorTexture(1, 0.72, 0.25, 1)
-    parts.savedCommentMark = mark
-
     local submit = button(controls, "List Me", toolbarButtonWidth, function()
         local _, active, waiting = addon.ListingState()
         if waiting then return end
@@ -783,8 +1078,8 @@ local function BuildListingControls(parent)
             if not ok then ListingError(reason) end
             return
         end
-        local ok, reason, needsComment = addon.CreateListing()
-        if needsComment then OpenListingDetails() elseif not ok then ListingError(reason) end
+        local ok, reason = addon.CreateListing()
+        if not ok then ListingError(reason) end
     end, toolbarButtonHeight)
     submit:SetPoint("RIGHT", options, "LEFT", -6, 0)
     paintButton(submit, true)
@@ -854,7 +1149,9 @@ local function BuildListingControls(parent)
                 function(choice) addon.db.listingVoice = choice end, value[1])
         end
         menu:CreateDivider()
-        menu:CreateButton("Comment…", function() SelectView("settings"); parts.savedComment:SetFocus() end)
+        menu:CreateButton("Comment…", function()
+            SelectView("settings", true)
+        end)
     end)
 
     local myRoles = CreateFrame("Frame", nil, parent)
@@ -1151,6 +1448,7 @@ local function AddNativeLauncher()
         nativeLauncher:SetChecked(true)
     end)
     window:SetScript("OnHide", function()
+        if inlineComposer then addon.EndNativeDraft() end
         for texture, alpha in pairs(selectionAlpha) do texture:SetAlpha(alpha) end
         selectionAlpha = {}
         nativeLauncher:SetChecked(false)
@@ -1160,11 +1458,13 @@ local function AddNativeLauncher()
         if not addon.db then return end
         if not parts.toolbar then BuildContents() end
         if view and view ~= currentView then
+            if inlineComposer then addon.EndNativeDraft() end
             currentView = view
             parts.results:SetVerticalScroll(0)
         end
         window:Show()
         addon.Refresh()
+        if currentView == "settings" then OpenListingDetails() end
         SearchOnFirstOpen()
     end
     nativeLauncher = SideTab(parent, function()
@@ -1207,6 +1507,7 @@ local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:RegisterEvent("ADDON_LOADED")
 loader:RegisterEvent("LFG_LIST_AVAILABILITY_UPDATE")
+loader:RegisterEvent("PLAYER_REGEN_DISABLED")
 loader:RegisterEvent("PLAYER_REGEN_ENABLED")
 loader:SetScript("OnEvent", function(self, event, addonName)
     if event == "PLAYER_LOGIN" then
@@ -1214,9 +1515,20 @@ loader:SetScript("OnEvent", function(self, event, addonName)
         AddNativeLauncher()
     elseif event == "ADDON_LOADED" and addonName == "Blizzard_GroupFinder_VanillaStyle" then
         AddNativeLauncher()
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        addon.Refresh()
     elseif event == "PLAYER_REGEN_ENABLED" or event == "LFG_LIST_AVAILABILITY_UPDATE" then
         if not addon.db then return end
-        if event == "PLAYER_REGEN_ENABLED" then addon.Refresh() end
+        if event == "PLAYER_REGEN_ENABLED" then
+            if deferredComposer then
+                RestoreCommentControls(deferredComposer)
+                deferredComposer = nil
+            end
+            local draft = deferredNativeDraft
+            deferredNativeDraft = nil
+            RestoreNativeDraft(draft)
+            addon.Refresh()
+        end
         SearchOnFirstOpen()
     end
     if nativeLauncher then self:UnregisterEvent("ADDON_LOADED") end

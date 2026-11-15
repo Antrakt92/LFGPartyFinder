@@ -71,8 +71,9 @@ client. The addon is standalone and is built for WoW Forever 1.60.1.
   healer or damage dealer, or use **Room for me** to match an open slot to your roles.
   Hover to see the roster and any listing comment.
 - **Listing.** Choose one or more roles and use **List Me** or **List Party**. The flag
-  marks a listing as **New Player Friendly**. Listing options include playstyle, voice
-  chat and a saved comment. WoW may open its listing editor to accept the comment.
+  marks a listing as **New Player Friendly**. Listing options include playstyle and
+  voice chat. To publish with a comment, type in the WoW field in Settings and use
+  the listing button below it.
 - **Messages.** Customize invite and join whispers in Settings. With an empty
   join-message template, the addon uses WoW's request-invite action.
 - **Search languages.** All supported languages are enabled by default. The search

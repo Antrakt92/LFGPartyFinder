@@ -48,7 +48,32 @@ function methods:SetWidth(width) self.width = width end
 function methods:GetWidth() return self.width end
 function methods:SetHeight(height) self.height = height end
 function methods:GetHeight() return self.height end
-function methods:SetPoint(point, ...) self[point] = { ... } end
+function methods:GetFrameLevel()
+    return self.level or (self.parent and self.parent:GetFrameLevel() + 1 or 1)
+end
+function methods:SetFrameLevel(level) self.level = level end
+function methods:GetFrameStrata() return self.strata or "MEDIUM" end
+function methods:SetFrameStrata(strata) self.strata = strata end
+function methods:SetPoint(point, ...)
+    self[point] = { ... }
+    self.points = self.points or {}
+    for _, existing in ipairs(self.points) do if existing == point then return end end
+    self.points[#self.points + 1] = point
+end
+function methods:GetNumPoints() return self.points and #self.points or 0 end
+function methods:GetPoint(index)
+    local point = self.points[index]
+    if not point then return end
+    local relative, relativePoint, x, y = unpack(self[point])
+    if type(relative) == "number" then
+        return point, self.parent, point, relative, relativePoint
+    end
+    return point, relative, relativePoint, x, y
+end
+function methods:ClearAllPoints()
+    for _, point in ipairs(self.points or {}) do self[point] = nil end
+    self.points = {}
+end
 function methods:SetHitRectInsets(_, right) self.hitRight = right end
 function methods:SetAtlas(atlas) self.atlas = atlas end
 function methods:SetTexture(texture) self.texture = texture end
@@ -153,9 +178,10 @@ function LFGVanilla_ToggleFrame(tab)
         LFGVanilla_ShowFrame(tab)
     end
 end
-function hooksecurefunc(name, callback)
-    local original = assert(_G[name])
-    _G[name] = function(...)
+function hooksecurefunc(target, name, callback)
+    if type(target) == "string" then target, name, callback = _G, target, name end
+    local original = assert(target[name])
+    target[name] = function(...)
         original(...)
         callback(...)
     end
@@ -179,4 +205,4 @@ for _, frame in ipairs(frames) do
     if frame.launch then frame.launch(frame, "LeftButton", true) end
 end
 
-return addon, frames, deferred, finderEvents, search
+return addon, frames, deferred, finderEvents, search, loader

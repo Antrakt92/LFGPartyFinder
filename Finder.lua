@@ -93,7 +93,7 @@ function addon.Activities()
                 end
                 entries[#entries + 1] = { id = id, name = read(info.shortName, "string") or name, fullName = name,
                     min = min, max = max, order = read(info.orderIndex, "number") or 0, group = group,
-                    recommended = recommended }
+                    recommended = recommended, capacity = read(info.maxNumPlayers, "number") }
             end
         end
     end
@@ -598,7 +598,9 @@ function addon.ListingRoles()
 end
 
 function addon.NativeListingRoles()
-    local raw = C_LFGListRoles and C_LFGListRoles.GetRoles and read(C_LFGListRoles.GetRoles(), "table")
+    if not C_LFGListRoles or type(C_LFGListRoles.GetRoles) ~= "function" then return end
+    local ok, value = pcall(C_LFGListRoles.GetRoles)
+    local raw = ok and read(value, "table")
     if not raw then return end
     local roles = {}
     for _, role in ipairs(addon.roles) do
@@ -633,22 +635,17 @@ function addon.ListingData(activities)
 end
 
 local function SetNativeListingRoles(roles)
+    if not C_LFGListRoles or type(C_LFGListRoles.SetRoles) ~= "function" then return false end
     local ok, success = pcall(C_LFGListRoles.SetRoles, roles, false)
     return ok and read(success, "boolean") == true
-end
-
-function addon.ApplySoloListingRoles(roles)
-    local selected = { tank = roles.tank == true, healer = roles.healer == true, dps = roles.dps == true }
-    if not (selected.tank or selected.healer or selected.dps) then return false end
-    return SetNativeListingRoles(selected)
 end
 
 function addon.NativeListingComment()
     local view = LFGListingFrame and LFGListingFrame.ActivityView
     local edit = view and view.Comment and view.Comment.EditBox
     if not edit then return end
-    local value = edit:GetText()
-    if canaccessvalue(value) and type(value) == "string" then return value end
+    local ok, value = pcall(edit.GetText, edit)
+    if ok and canaccessvalue(value) and type(value) == "string" then return value end
 end
 
 function addon.SaveListingComment(value)
@@ -671,6 +668,15 @@ function addon.CanCreateListing(activities)
     if #activities == 0 then return nil, "Choose a dungeon first." end
     local max = Constants and Constants.LFGConstsExposed and Constants.LFGConstsExposed.GROUP_FINDER_MAX_ACTIVITY_CAPACITY
     if max and #activities > max then return nil, "Too many dungeons selected." end
+    if grouped then
+        local count = read(GetNumGroupMembers(LE_PARTY_CATEGORY_HOME), "number")
+        for _, activity in ipairs(activities) do
+            local capacity = activity.capacity
+            if count and capacity and capacity > 0 and count >= capacity then
+                return nil, "Your party is full for " .. activity.name .. "."
+            end
+        end
+    end
     return true
 end
 
@@ -678,11 +684,23 @@ local function RolesMatch(left, right)
     return left and right and left.tank == right.tank and left.healer == right.healer and left.dps == right.dps
 end
 
-local function RestoreListingRoles(change)
+function addon.ApplyListingRoleDraft(roles, requirePrior)
+    local selected = { tank = roles.tank == true, healer = roles.healer == true, dps = roles.dps == true }
+    if not (selected.tank or selected.healer or selected.dps) then return false end
+    local prior = addon.NativeListingRoles()
+    if requirePrior and not prior then return false end
+    if not SetNativeListingRoles(selected) then return false end
+    if prior and not RolesMatch(prior, selected) then
+        return true, { prior = prior, applied = selected, revision = listingRoleRevision }
+    end
+    return true
+end
+
+function addon.RestoreListingRoleDraft(change)
     if not change or listingRoleRevision ~= change.revision then return end
     local grouped, active = addon.ListingState()
     if grouped ~= false or active ~= false then return end
-    if RolesMatch(addon.NativeListingRoles(), change.applied) then SetNativeListingRoles(change.prior) end
+    if RolesMatch(addon.NativeListingRoles(), change.applied) then return SetNativeListingRoles(change.prior) end
 end
 
 local function RequestListingChange(kind, action, roleChange, ...)
@@ -694,7 +712,7 @@ local function RequestListingChange(kind, action, roleChange, ...)
     if request.failed or not ok or accepted == false or (request.active and accepted ~= true) then
         if listingPending == request then listingPending = nil end
         if request.failed or (ok and accepted == false) then
-            RestoreListingRoles(roleChange)
+            addon.RestoreListingRoleDraft(roleChange)
         elseif request.active then
             uncertainCreate = true
         end
@@ -728,24 +746,28 @@ function addon.CreateListing()
     local activities = addon.SelectedActivities()
     local allowed, reason = addon.CanCreateListing(activities)
     if not allowed then return false, reason end
-    local comment = read(addon.db.listingComment, "string")
-    if comment and addon.NativeListingComment() ~= comment then return false, nil, true end
+    local create = C_LFGList.CreateListing
+    local clear = C_LFGList.ClearCreationTextFields
+    if type(create) ~= "function" or type(clear) ~= "function" then
+        return false, "WoW's listing controls are unavailable."
+    end
+    local data = addon.ListingData(activities)
     local grouped = addon.ListingState()
     local roleChange
     if grouped == false then
-        local prior = addon.NativeListingRoles()
-        local selected = addon.ListingRoles()
-        if not addon.ApplySoloListingRoles(selected) then
+        local applied
+        applied, roleChange = addon.ApplyListingRoleDraft(addon.ListingRoles())
+        if not applied then
             return false, "Choose at least one role the game accepts."
         end
-        if prior and not RolesMatch(prior, selected) then
-            roleChange = { prior = prior, applied = selected, revision = listingRoleRevision }
-        end
     end
-    if not comment then
-        C_LFGList.ClearCreationTextFields()
+    local cleared, result = pcall(clear)
+    local comment = cleared and addon.NativeListingComment()
+    if not cleared or read(result, "boolean") == false or (comment and comment ~= "") then
+        addon.RestoreListingRoleDraft(roleChange)
+        return false, "WoW could not clear the listing text. Open the comment form to review it."
     end
-    if not RequestListingChange("create", C_LFGList.CreateListing, roleChange, addon.ListingData(activities)) then
+    if not RequestListingChange("create", create, roleChange, data) then
         return false, "WoW declined the listing. Check the selected dungeons and roles."
     end
     return true
