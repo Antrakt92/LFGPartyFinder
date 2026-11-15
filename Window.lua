@@ -133,12 +133,16 @@ local function iconCheck(parent, role, label, click, detail)
     icon:SetPoint("CENTER")
     icon:SetAtlas(role.icon, false)
     check.icon = icon
-    check:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    local tick = check:GetCheckedTexture()
-    tick:ClearAllPoints()
-    tick:SetSize(13, 13)
-    tick:SetPoint("BOTTOMLEFT", 0, 0)
-    tick:SetDrawLayer("OVERLAY")
+    local tickPath = "Interface\\Buttons\\UI-CheckBox-Check"
+    check:SetCheckedTexture(tickPath)
+    check:SetDisabledCheckedTexture(tickPath)
+    for _, tick in ipairs({ check:GetCheckedTexture(), check:GetDisabledCheckedTexture() }) do
+        tick:ClearAllPoints()
+        tick:SetSize(13, 13)
+        tick:SetPoint("BOTTOMLEFT", 0, 0)
+        tick:SetDrawLayer("OVERLAY")
+    end
+    check:SetMotionScriptsWhileDisabled(true)
     check:SetScript("OnClick", click)
     hover(check, label, detail)
     return check
@@ -483,7 +487,14 @@ function addon.Refresh()
     for key, tab in pairs(parts.tabs) do paintButton(tab, key == currentView) end
 
     local playerLabel, groupLabel = "Players", "Groups"
-    local roles = addon.ListingRoles()
+    local grouped, active, waiting = addon.ListingState()
+    local listedSolo = grouped == false and active == true
+    local roles
+    if listedSolo then
+        roles = addon.NativeListingRoles()
+    else
+        roles = addon.ListingRoles()
+    end
     local excludedClasses = addon.db.excludedClasses
     for class, check in pairs(parts.classChecks) do
         local included = not excludedClasses[class]
@@ -494,7 +505,11 @@ function addon.Refresh()
     local languageCount = 0
     for _ in pairs(addon.db.searchLanguages) do languageCount = languageCount + 1 end
     parts.languageFilter:OverrideText(languageCount == 0 and "All languages" or ("Languages (" .. languageCount .. ")"))
-    parts.visibleGroups = addon.FilterGroups(addon.groups or {}, groupRoleFilters, roomForMe and roles or nil, excludedClasses)
+    local hasRoomRoles = roles ~= nil and (roles.tank or roles.healer or roles.dps)
+    parts.roomFilter:SetEnabled(hasRoomRoles)
+    parts.roomFilter:SetChecked(roomForMe and hasRoomRoles)
+    parts.visibleGroups = addon.FilterGroups(addon.groups or {}, groupRoleFilters,
+        roomForMe and hasRoomRoles and roles or nil, excludedClasses)
     if addon.players and (not addon.status or #addon.players > 0) then
         local playerCount = 0
         for _, player in ipairs(addon.players) do
@@ -513,7 +528,6 @@ function addon.Refresh()
     local label = activities[1] and activities[1].name or "Choose dungeons"
     if #activities > 1 then label = label .. " +" .. (#activities - 1) end
     parts.activity:OverrideText(label)
-    local grouped, active, waiting = addon.ListingState()
     local showListing = currentView ~= "settings" and (#activities > 0 or active == true or waiting ~= nil)
     parts.listingControls:SetShown(showListing)
     local savedComment = read(addon.db.listingComment, "string")
@@ -521,11 +535,14 @@ function addon.Refresh()
     if parts.savedComment:GetText() ~= (savedComment or "") then
         parts.savedComment:SetText(savedComment or "")
     end
+    parts.myRoles:SetShown(currentView == "groups" or (showListing and grouped == false))
+    parts.myRolesLabel:SetText(listedSolo and "Listed" or "My roles")
+    for _, role in ipairs(addon.roles) do
+        local check = parts.roleChoices[role.key]
+        check:SetChecked(roles ~= nil and roles[role.key] == true)
+        check:SetEnabled(not listedSolo and not waiting and grouped ~= nil)
+    end
     if showListing then
-        for _, role in ipairs(addon.roles) do
-            parts.roleChoices[role.key]:SetChecked(roles[role.key])
-        end
-        parts.myRoles:SetShown(grouped == false)
         local buttonLabel = grouped and "List Party" or "List Me"
         local canManage = addon.CanManageListing(grouped)
         local friendly = addon.db.listingNewPlayerFriendly
@@ -822,7 +839,7 @@ local function BuildListingControls(parent)
         menu:CreateButton("Comment…", function() SelectView("settings"); parts.savedComment:SetFocus() end)
     end)
 
-    local myRoles = CreateFrame("Frame", nil, controls)
+    local myRoles = CreateFrame("Frame", nil, parent)
     myRoles:SetSize(135, 27)
     local friendly = iconCheck(controls, { icon = "UI-LFG-RoleIcon-Leader" }, "New Player Friendly", function(self)
         addon.db.listingNewPlayerFriendly = self:GetChecked() == true
@@ -830,12 +847,12 @@ local function BuildListingControls(parent)
     friendly:SetPoint("TOPRIGHT", -12, -77)
     parts.newPlayerFriendly = friendly
     myRoles:SetPoint("RIGHT", friendly, "LEFT", -4, 0)
-    local label = text(myRoles, "My roles", "GameFontHighlightSmall")
-    label:SetPoint("LEFT")
+    parts.myRolesLabel = text(myRoles, "My roles", "GameFontHighlightSmall")
+    parts.myRolesLabel:SetPoint("LEFT")
     for index, role in ipairs(addon.roles) do
-        local check = iconCheck(myRoles, role, "List as " .. role.label, function(self)
+        local check = iconCheck(myRoles, role, role.label, function(self)
             addon.SetListingRole(role.key, self:GetChecked() == true)
-        end)
+        end, "Used by Room for me and when listing solo. While listed solo, the checked icons show your current listing roles.")
         check:SetPoint("LEFT", 47 + (index - 1) * 30, 0)
         parts.roleChoices[role.key] = check
     end
@@ -957,7 +974,8 @@ local function BuildContents()
         roomForMe = self:GetChecked() == true
         refreshGroupFilters()
     end)
-    hover(room, "Room for me", "The group has an open slot for at least one of your listing roles.")
+    hover(room, "Room for me", "Shows groups with a slot for one of the roles checked on the right. Select at least one role to use this filter.")
+    parts.roomFilter = room
     parts.groupFilter = groupFilter
 
     parts.classHeaders = CreateFrame("Frame", nil, header)

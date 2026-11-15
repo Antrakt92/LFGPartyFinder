@@ -551,6 +551,18 @@ function addon.ListingRoles()
     return roles
 end
 
+function addon.NativeListingRoles()
+    local raw = C_LFGListRoles and C_LFGListRoles.GetRoles and read(C_LFGListRoles.GetRoles(), "table")
+    if not raw then return end
+    local roles = {}
+    for _, role in ipairs(addon.roles) do
+        local enabled = read(raw[role.key], "boolean")
+        if enabled == nil then return end
+        roles[role.key] = enabled
+    end
+    return roles
+end
+
 function addon.SetListingRole(key, checked)
     local roles = addon.ListingRoles()
     if roles[key] == nil then return end

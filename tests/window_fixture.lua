@@ -37,6 +37,11 @@ function methods:SetCheckedTexture(texture)
     self.tick:SetTexture(texture)
 end
 function methods:GetCheckedTexture() return self.tick end
+function methods:SetDisabledCheckedTexture(texture)
+    self.disabledTick = self:CreateTexture()
+    self.disabledTick:SetTexture(texture)
+end
+function methods:GetDisabledCheckedTexture() return self.disabledTick end
 function methods:SetEnabled(enabled) self.enabled = enabled end
 function methods:SetSize(width, height) self.width, self.height = width, height end
 function methods:SetWidth(width) self.width = width end
