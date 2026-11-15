@@ -232,7 +232,8 @@ local function DispatchQueuedSearch()
         end
         queuedSearch = nil
         if not request.canRetry or request.canRetry() then
-            addon.Search(request.canRetry)
+            local accepted = addon.Search(request.canRetry, request.onDispatchFailure)
+            if not accepted and request.onDispatchFailure then request.onDispatchFailure() end
         else
             addon.status = "Click Search to refresh."
             changed()
@@ -272,7 +273,7 @@ local function ConsumeUnownedSearchCompletion()
     return true
 end
 
-function addon.Search(canRetry)
+function addon.Search(canRetry, onQueuedDispatchFailure)
     if InCombatLockdown() then
         addon.status = "Finish combat before searching."
         changed()
@@ -280,7 +281,7 @@ function addon.Search(canRetry)
     end
     if foreignSearch or drainingSearch or pending then
         if foreignSearch or drainingSearch or (pending and pending.discard) then
-            queuedSearch = { canRetry = canRetry }
+            queuedSearch = { canRetry = canRetry, onDispatchFailure = onQueuedDispatchFailure }
             addon.status = "Waiting for the previous search to finish…"
             changed()
         end
@@ -431,7 +432,8 @@ local function ResultSnapshot()
     for _, value in ipairs(read(results, "table") or {}) do
         local id = read(value, "number")
         if id and not seen[id] then
-            ids[#ids + 1], seen[id] = id, true
+            local order = #ids + 1
+            ids[order], seen[id] = id, order
         end
     end
     return { ids = ids, seen = seen }
@@ -502,7 +504,11 @@ local function CollectResults(query, snapshot)
             end
         end
     end
-    table.sort(groups, function(a, b) return (a.rank or 4) < (b.rank or 4) end)
+    table.sort(groups, function(a, b)
+        local aRank, bRank = a.rank or 4, b.rank or 4
+        if aRank ~= bRank then return aRank < bRank end
+        return snapshot.seen[a.id] < snapshot.seen[b.id]
+    end)
     return players, groups, foundOtherActivity and not foundMatchingActivity
 end
 

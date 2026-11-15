@@ -581,7 +581,9 @@ end
 
 local function SearchOnFirstOpen()
     if addon.openedBefore or not IsResultsViewVisible() then return end
-    if addon.Search(ContinueOpeningSearch) then addon.openedBefore = true end
+    if addon.Search(ContinueOpeningSearch, function() addon.openedBefore = nil end) then
+        addon.openedBefore = true
+    end
 end
 
 local function SelectView(view)

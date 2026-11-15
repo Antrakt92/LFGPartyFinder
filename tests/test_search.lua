@@ -328,4 +328,39 @@ fire("PLAYER_REGEN_ENABLED")
 advance(0)
 assert(#requests == sent, "closing the window still cancels a queued automatic search")
 
+local getAvailableActivities = C_LFGList.GetAvailableActivities
+C_LFGList.GetAvailableActivities = function() return {} end
+C_LFGList.Search(2, 0, 0, nil, false, nil, {10})
+sent = #requests
+local failedOpeningDispatches = 0
+assert(addon.Search(function() return true end, function()
+    failedOpeningDispatches = failedOpeningDispatches + 1
+end))
+receive()
+advance(0)
+assert(#requests == sent and failedOpeningDispatches == 1, "the opener is notified when a queued search could not start")
+C_LFGList.GetAvailableActivities = getAvailableActivities
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(addon.Search() and #requests == sent + 1)
+receive(1)
+
+C_LFGList.GetSearchResultLeaderInfo = function() end
+for id = 101, 106 do
+    result(id, "Group " .. id, 10)
+    results[id].numMembers = 2
+end
+assert(addon.Search())
+receive(101, 102, 103, 104, 105, 106)
+for index, group in ipairs(addon.groups) do
+    assert(group.id == index + 100, "same-rank groups retain native result order")
+end
+results[103].isDelisted = true
+fire("LFG_LIST_SEARCH_RESULT_UPDATED", 103)
+advance(0.2)
+local retainedGroupIDs = { 101, 102, 104, 105, 106 }
+assert(#addon.groups == #retainedGroupIDs)
+for index, group in ipairs(addon.groups) do
+    assert(group.id == retainedGroupIDs[index], "unrelated cards do not shuffle when a group disappears")
+end
+
 print("Passed search ownership, late results, queued changes, refresh isolation, DB normalization and retry bounds")
