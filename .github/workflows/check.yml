@@ -1,0 +1,24 @@
+name: Check addon
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lua:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends lua5.1
+      - name: Check syntax and run tests
+        run: |
+          luac5.1 -p Data.lua Finder.lua Window.lua tests/*.lua
+          for test in tests/test_*.lua; do lua5.1 "$test" .; done
+      - name: Verify package
+        run: python3 scripts/package.py

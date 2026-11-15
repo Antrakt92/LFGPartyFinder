@@ -1,0 +1,115 @@
+-- Run with Lua 5.1 and pass the addon directory as the first argument.
+local fixturePath = (arg[0]:match("^(.*[/\\])") or "") .. "window_fixture.lua"
+local addon, _, _, events, search = assert(loadfile(fixturePath))(arg[1] or ".")
+
+local now, partyCount = 1, 0
+local canInvite, lockdown, confirmInvite, inviteThrows, combat = true, false, false, false, false
+local requestThrows = false
+local calls = {}
+function GetTime() return now end
+function InCombatLockdown() return combat end
+function UnitFactionGroup() return "Horde" end
+function GetNumGroupMembers() return partyCount end
+function IsInRaid() return false end
+function UnitClass() return "Mage", "MAGE" end
+function UnitGroupRolesAssigned() return "NONE" end
+ChatFrameUtil = { SendTell = function(target) calls[#calls + 1] = { "open", target } end }
+C_PartyInfo = {
+    CanInvite = function() return canInvite end,
+    IsPartyFull = function() return false end,
+    InviteUnit = function(target)
+        if inviteThrows then error("protected invite failed") end
+        calls[#calls + 1] = { "invite", target }
+        if confirmInvite then events.scripts.OnEvent(events, "INVITE_TO_PARTY_CONFIRMATION", target .. "-Realm") end
+    end,
+    RequestInviteFromUnit = function(target)
+        if requestThrows then error("protected request failed") end
+        calls[#calls + 1] = { "request", target }
+    end,
+}
+C_ChatInfo = {
+    InChatMessagingLockdown = function() return lockdown end,
+    SendChatMessage = function(text, chatType, _, target)
+        assert(chatType == "WHISPER")
+        calls[#calls + 1] = { "send", target, text }
+    end,
+}
+local originalActivity = C_LFGList.GetActivityInfoTable
+C_LFGList.GetActivityInfoTable = function(id)
+    local activity = originalActivity(id)
+    if activity then activity.maxNumPlayers = 5 end
+    return activity
+end
+local results = {
+    { activityIDs = { 1 }, hasSelf = false, isDelisted = false, leaderName = "Solo", numMembers = 1, partyGUID = "old-solo" },
+    { activityIDs = { 1 }, hasSelf = false, isDelisted = false, leaderName = "Group leader", numMembers = 4 },
+}
+C_LFGList.GetSearchResultInfo = function(id) return results[id] end
+C_LFGList.Search = function() return true end
+C_LFGList.GetFilteredSearchResults = function() return 2, { 1, 2 } end
+C_LFGList.GetSearchResultPlayerInfo = function() return {} end
+C_LFGList.GetSearchResultLeaderInfo = function() return {} end
+addon.db.manualDungeonSelection = true
+addon.db.activities = { [1] = true, [2] = true }
+search()
+events.scripts.OnEvent(events, "LFG_LIST_SEARCH_RESULTS_RECEIVED")
+local solo, group = assert(addon.players[1]), assert(addon.groups[1])
+local function assertAction(kind, target, pattern)
+    local call = assert(table.remove(calls, 1))
+    assert(call[1] == kind and call[2] == target)
+    if pattern then assert(call[3]:find(pattern, 1, true)) end
+end
+
+partyCount = 5
+local blocked, reason = addon.Act(solo)
+assert(blocked == false and reason and #calls == 0, "a full dungeon party neither invites nor whispers")
+partyCount, canInvite = 0, false
+assert(addon.Act(solo) == false and #calls == 0, "native invite permission cannot be skipped")
+canInvite, combat = true, true
+addon.Act(solo)
+assert(#calls == 0)
+combat, confirmInvite = false, true
+addon.Act(solo)
+assertAction("invite", "Solo")
+assert(#calls == 0, "a pending native confirmation has not sent an invite whisper")
+
+confirmInvite, now = false, 3
+inviteThrows = true
+assert(addon.Act(solo) == false and #calls == 0, "a native invite error suppresses its whisper")
+inviteThrows, now = false, 5
+addon.Act(solo)
+assertAction("invite", "Solo")
+assertAction("send", "Solo", "Need a tank, a healer, 2 DPS.")
+addon.Act(group)
+assert(#calls == 0, "the click cooldown also covers a second card")
+
+now, lockdown = 7, true
+assert(addon.Act(group) == false and #calls == 0, "a locked chat does not call SendChatMessage")
+now, lockdown = 9, false
+addon.Act(group)
+assertAction("send", "Group leader", "level 32 Mage")
+addon.OpenWhisper(group)
+assertAction("open", "Group leader")
+now = 11
+addon.db.askText = " "
+addon.Act(group)
+assertAction("request", "Group leader")
+addon.Act(group)
+assert(#calls == 0, "an empty join template requests entry without a whisper and uses the action cooldown")
+now, requestThrows = 13, true
+local ok, requestError = addon.Act(group)
+assert(ok == false and requestError and #calls == 0, "a native request error is reported without sending a whisper")
+now = 15
+results[1].activityIDs = { 2 }
+addon.Act(solo)
+addon.OpenWhisper(solo)
+assert(#calls == 0, "a stale card cannot act for an activity that left the listing")
+results[1].activityIDs, results[1].partyGUID = { 1 }, "new-solo"
+addon.Act(solo)
+assert(#calls == 0, "a stale card cannot act on a replacement listing from the same leader")
+
+local prefix = string.rep("a", 254)
+assert(addon.RenderTemplate(prefix .. "€", {}) == prefix, "cuts at the 255-byte limit without breaking UTF-8")
+assert(addon.RenderTemplate("x %unknown%  %class%", { class = "Mage" }) == "x %unknown% Mage")
+assert(addon.RenderTemplate(string.rep(string.char(128), 256), {}) == "", "malformed input cannot run past byte zero")
+print("Passed action identity, invite capacity, native confirmation, whisper restrictions and UTF-8 limits")

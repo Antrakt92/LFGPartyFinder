@@ -1,0 +1,177 @@
+local addonRoot = ...
+local frames, deferred = {}, {}
+local methods = {}
+setmetatable(methods, { __index = function(_, key)
+    if key:match("^[A-Z]") then return function() end end
+end })
+
+function CreateFrame(kind, _, parent, template)
+    local frame = setmetatable({ kind = kind, parent = parent, template = template, shown = true, scripts = {} }, { __index = methods })
+    frames[#frames + 1] = frame
+    if template == "LargeSideTabButtonTemplate" or template == "LFGOptionsButton" then
+        frame.Icon = CreateFrame("Texture", nil, frame)
+    end
+    return frame
+end
+function methods:CreateFontString() return CreateFrame("FontString", nil, self) end
+function methods:CreateTexture() return CreateFrame("Texture", nil, self) end
+function methods:CreateMaskTexture() return CreateFrame("MaskTexture", nil, self) end
+function methods:AddMaskTexture(mask) self.mask = mask end
+function methods:SetVertexColor(...) self.vertexColor = { ... } end
+function methods:SetColorTexture(...) self.textureColor = { ... } end
+function methods:CreateAnimationGroup()
+    local animation = CreateFrame("AnimationGroup", nil, self)
+    animation.Play = function(self) self.playing = true end
+    animation.Stop = function(self) self.playing = false end
+    animation.IsPlaying = function(self) return self.playing == true end
+    animation.CreateAnimation = function(self) return CreateFrame("Animation", nil, self) end
+    return animation
+end
+function methods:GetHighlightTexture() return self:CreateTexture() end
+function methods:SetText(label) self.label = label end
+function methods:GetText() return self.label or "" end
+function methods:SetChecked(checked) self.checked = checked end
+function methods:GetChecked() return self.checked end
+function methods:SetCheckedTexture(texture)
+    self.tick = self:CreateTexture()
+    self.tick:SetTexture(texture)
+end
+function methods:GetCheckedTexture() return self.tick end
+function methods:SetEnabled(enabled) self.enabled = enabled end
+function methods:SetSize(width, height) self.width, self.height = width, height end
+function methods:SetWidth(width) self.width = width end
+function methods:GetWidth() return self.width end
+function methods:SetHeight(height) self.height = height end
+function methods:GetHeight() return self.height end
+function methods:SetPoint(point, ...) self[point] = { ... } end
+function methods:SetHitRectInsets(_, right) self.hitRight = right end
+function methods:SetAtlas(atlas) self.atlas = atlas end
+function methods:SetTexture(texture) self.texture = texture end
+function methods:OverrideText(label) self.label = label end
+function methods:RegisterEvent(event)
+    self.events = self.events or {}
+    self.events[event] = true
+end
+function methods:UnregisterEvent(event)
+    if self.events then self.events[event] = nil end
+end
+function methods:SetScript(event, callback) self.scripts[event] = callback end
+function methods:HookScript(event, callback)
+    local original = self.scripts[event]
+    self.scripts[event] = function(...)
+        if original then original(...) end
+        callback(...)
+    end
+end
+function methods:SetShown(shown)
+    if shown == self.shown then return end
+    self.shown = shown
+    local callback = self.scripts[shown and "OnShow" or "OnHide"]
+    if callback then callback(self) end
+end
+function methods:Show() self:SetShown(true) end
+function methods:Hide() self:SetShown(false) end
+function methods:IsShown() return self.shown end
+function methods:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
+function methods:SetCustomOnMouseUpHandler(callback) self.launch = callback end
+function methods:EnableRegenerateOnResponse() self.regenerateOnResponse = true end
+function methods:SetupMenu(generator) self.generator = generator end
+function methods:IsMenuOpen() return self.options ~= nil end
+function methods:OpenMenu()
+    assert(not self:IsMenuOpen(), "never replace an open menu")
+    local options = {}
+    self.generator(self, {
+        CreateCheckbox = function(_, label, selected, click, data)
+            local option = {
+                label = label, selected = selected, click = click, id = data,
+                SetSelectionIgnored = function(self) self.ignored = true end,
+                SetResponse = function(self, response) self.response = response end,
+            }
+            options[#options + 1] = option
+            return option
+        end,
+        CreateDivider = function() self.dividerAfter = #options end,
+        SetScrollMode = function() end,
+    })
+    self.options = options
+    self.menuOffset = 0
+end
+function methods:PickOption(index)
+    local option = self.options[index]
+    option.click(option.id)
+    -- The native dropdown receives the selection callback before processing its response.
+    if self.regenerateOnResponse then self:OpenMenu() end
+    if option.response == MenuResponse.Close then self.options = nil end
+end
+
+function canaccessvalue() return true end
+function UnitLevel() return 32 end
+function strcmputf8i(a, b)
+    a, b = a:lower(), b:lower()
+    return a == b and 0 or (a < b and -1 or 1)
+end
+function ScrollFrame_OnScrollRangeChanged() end
+
+SlashCmdList = {}
+MenuResponse = { Close = "close" }
+C_Timer = { After = function(delay, callback)
+    assert(delay == 0 or delay == 5 or delay == 6)
+    deferred[#deferred + 1] = callback
+end }
+local activities = {
+    { fullName = "Scarlet Graveyard", minLevelSuggestion = 30, maxLevelSuggestion = 38, orderIndex = 0 },
+    { fullName = "Gnomeregan", minLevelSuggestion = 29, maxLevelSuggestion = 38, orderIndex = 0 },
+    { fullName = "Razorfen Kraul", minLevelSuggestion = 29, maxLevelSuggestion = 38, orderIndex = 0 },
+    { fullName = "Ragefire Chasm", minLevelSuggestion = 13, maxLevelSuggestion = 18, orderIndex = 0 },
+    { fullName = "Scholomance", minLevelSuggestion = 58, maxLevelSuggestion = 60, orderIndex = 0 },
+}
+C_LFGList = {
+    GetAvailableActivities = function() return { 3, 1, 4, 2, 5 } end,
+    GetActivityInfoTable = function(id) return activities[id] end,
+    GetActiveEntryInfo = function() end,
+    HasActiveEntryInfo = function() return false end,
+}
+function IsInGroup() return false end
+function UnitGetAvailableRoles() return true, true, true end
+function InCombatLockdown() return false end
+GameTooltip = { GetOwner = function() end }
+function GameTooltip_Hide() end
+LFGParentFrame = CreateFrame("Frame")
+function LFGVanilla_ShowFrame(tab)
+    LFGParentFrame:Show()
+    LFGParentFrame.selectedTab = tab
+end
+function LFGVanilla_ToggleFrame(tab)
+    if LFGParentFrame:IsShown() and LFGParentFrame.selectedTab == tab then
+        LFGParentFrame:Hide()
+    else
+        LFGVanilla_ShowFrame(tab)
+    end
+end
+function hooksecurefunc(name, callback)
+    local original = assert(_G[name])
+    _G[name] = function(...)
+        original(...)
+        callback(...)
+    end
+end
+for _, key in ipairs({ "ListingTab", "BrowsingTab", "WhoListingTab" }) do
+    LFGParentFrame[key] = CreateFrame("Frame", nil, LFGParentFrame)
+    LFGParentFrame[key].SelectedTexture = false
+end
+
+local addon, finderEvents = {}, nil
+for _, file in ipairs({ "Data", "Finder", "Window" }) do
+    assert(loadfile(addonRoot .. "/" .. file .. ".lua"))("PartyFinderForever", addon)
+    if file == "Finder" then finderEvents = frames[#frames] end
+end
+local loader = frames[#frames]
+addon.PreferredRole = function() end
+local search = addon.Search
+addon.Search = function() end
+loader.scripts.OnEvent(loader, "PLAYER_LOGIN")
+for _, frame in ipairs(frames) do
+    if frame.launch then frame.launch(frame, "LeftButton", true) end
+end
+
+return addon, frames, deferred, finderEvents, search
