@@ -38,6 +38,7 @@ end
 
 local active, grouped, leader, publications = false, false, false, {}
 local sentRoles, cleared, removals, rejectRemoval = nil, nil, 0, false
+local nativeRoles, roleWrites = { tank = false, healer = true, dps = false }, 0
 C_LFGList.HasActiveEntryInfo = function() return active end
 C_LFGList.RemoveListing = function()
     removals = removals + 1
@@ -51,9 +52,12 @@ C_LFGList.CreateListing = function(data)
     publications[#publications + 1] = data
     return true
 end
-C_LFGListRoles = { SetRoles = function(roles, limitToClassRoles)
+C_LFGListRoles = { GetRoles = function() return nativeRoles end, SetRoles = function(roles, limitToClassRoles)
     assert(limitToClassRoles == false)
     sentRoles = roles
+    nativeRoles = roles
+    roleWrites = roleWrites + 1
+    finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ROLE_UPDATE")
     return true
 end }
 function IsInGroup() return grouped end
@@ -134,16 +138,54 @@ local function greenStatus()
 end
 assert(redStatus())
 local createListing = C_LFGList.CreateListing
+C_LFGList.CreateListing = function() return false end
+submit.scripts.OnClick(submit)
+assert(nativeRoles.healer and not nativeRoles.tank, "explicit refusal restores the prior native roles")
+C_LFGList.CreateListing = function()
+    finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
+    return true
+end
+submit.scripts.OnClick(submit)
+assert(nativeRoles.healer and not nativeRoles.tank and submit.enabled, "synchronous failure restores native roles")
 C_LFGList.CreateListing = function() return true end
 submit.scripts.OnClick(submit)
 assert(not submit.enabled)
 finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
 assert(submit.enabled and redStatus() and listingError, "server failure immediately enables a retry")
+assert(nativeRoles.tank, "an untagged asynchronous failure does not rewrite roles")
+
+nativeRoles = { tank = false, healer = true, dps = false }
+C_LFGList.CreateListing = function()
+    nativeRoles = { tank = false, healer = false, dps = true }
+    return false
+end
+submit.scripts.OnClick(submit)
+assert(nativeRoles.dps, "explicit failure leaves a newer native selection intact")
+
+C_LFGList.CreateListing = function()
+    C_LFGListRoles.SetRoles({ tank = false, healer = true, dps = false }, false)
+    C_LFGListRoles.SetRoles({ tank = true, healer = false, dps = false }, false)
+    return false
+end
+submit.scripts.OnClick(submit)
+assert(nativeRoles.tank, "intervening role updates invalidate rollback even when values match")
+C_LFGList.CreateListing = function() return true end
+nativeRoles = { tank = false, healer = true, dps = false }
+submit.scripts.OnClick(submit)
+local writesBeforeTimeout = roleWrites
+deferred[#deferred]()
+assert(nativeRoles.tank and roleWrites == writesBeforeTimeout and submit.enabled, "an unconfirmed timeout does not restore native roles")
+nativeRoles = { tank = false, healer = true, dps = false }
+C_LFGList.CreateListing = function() error("ambiguous API outcome") end
+submit.scripts.OnClick(submit)
+assert(nativeRoles.tank and submit.enabled, "an ambiguous API exception does not restore native roles")
 C_LFGList.CreateListing = createListing
 -- The deferred retry timer from the failed request must not release a newer request.
 local failedTimer = deferred[#deferred]
 submit.scripts.OnClick(submit)
 failedTimer()
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
+assert(not submit.enabled and sentRoles.tank, "a late failure cannot complete the newer attempt")
 assert(#publications == 1 and publications[1].generalPlaystyle == Enum.LFGEntryGeneralPlaystyle.FunRelaxed)
 assert(publications[1].voiceMode == Enum.LFGEntryVoiceMode.None)
 assert(publications[1].newPlayerFriendly == true)

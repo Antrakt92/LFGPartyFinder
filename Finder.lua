@@ -3,7 +3,8 @@ local read = addon.Read
 local category = addon.dungeonCategory
 local activeQuery, activeResults, pending, nextAction = {}, {}, nil, 0
 local openingRetry, queuedSearch, foreignSearch, callingSearch
-local listingPending
+local listingPending, uncertainCreate
+local listingRoleRevision = 0
 local inviteAttempt
 
 addon.defaults = {
@@ -586,11 +587,15 @@ function addon.ListingData(activities)
         newPlayerFriendly = addon.db.listingNewPlayerFriendly == true }
 end
 
+local function SetNativeListingRoles(roles)
+    local ok, success = pcall(C_LFGListRoles.SetRoles, roles, false)
+    return ok and read(success, "boolean") == true
+end
+
 function addon.ApplySoloListingRoles(roles)
     local selected = { tank = roles.tank == true, healer = roles.healer == true, dps = roles.dps == true }
     if not (selected.tank or selected.healer or selected.dps) then return false end
-    local ok, success = pcall(C_LFGListRoles.SetRoles, selected, false)
-    return ok and read(success, "boolean") == true
+    return SetNativeListingRoles(selected)
 end
 
 function addon.NativeListingComment()
@@ -624,7 +629,18 @@ function addon.CanCreateListing(activities)
     return true
 end
 
-local function RequestListingChange(kind, action, ...)
+local function RolesMatch(left, right)
+    return left and right and left.tank == right.tank and left.healer == right.healer and left.dps == right.dps
+end
+
+local function RestoreListingRoles(change)
+    if not change or listingRoleRevision ~= change.revision then return end
+    local grouped, active = addon.ListingState()
+    if grouped ~= false or active ~= false then return end
+    if RolesMatch(addon.NativeListingRoles(), change.applied) then SetNativeListingRoles(change.prior) end
+end
+
+local function RequestListingChange(kind, action, roleChange, ...)
     local request = { kind = kind, active = kind == "create", dispatching = true }
     listingPending = request
     local ok, success = pcall(action, ...)
@@ -632,6 +648,11 @@ local function RequestListingChange(kind, action, ...)
     local accepted = ok and read(success, "boolean")
     if request.failed or not ok or accepted == false or (request.active and accepted ~= true) then
         if listingPending == request then listingPending = nil end
+        if request.failed or (ok and accepted == false) then
+            RestoreListingRoles(roleChange)
+        elseif request.active then
+            uncertainCreate = true
+        end
         changed()
         return false
     end
@@ -639,6 +660,7 @@ local function RequestListingChange(kind, action, ...)
         C_Timer.After(5, function()
             if listingPending ~= request then return end
             listingPending = nil
+            if request.active then uncertainCreate = true end
             changed()
         end)
     end
@@ -651,7 +673,7 @@ function addon.RemoveListing()
     if waiting or active ~= true then return false, "No active listing is ready to remove." end
     if InCombatLockdown() then return false, "Finish combat before unlisting." end
     if not addon.CanManageListing(grouped) then return false, "Only the party leader can unlist the group." end
-    if not RequestListingChange("remove", C_LFGList.RemoveListing) then
+    if not RequestListingChange("remove", C_LFGList.RemoveListing, nil) then
         return false, "WoW could not remove the listing. Try again."
     end
     return true
@@ -664,13 +686,21 @@ function addon.CreateListing()
     local comment = read(addon.db.listingComment, "string")
     if comment and addon.NativeListingComment() ~= comment then return false, nil, true end
     local grouped = addon.ListingState()
-    if grouped == false and not addon.ApplySoloListingRoles(addon.ListingRoles()) then
-        return false, "Choose at least one role the game accepts."
+    local roleChange
+    if grouped == false then
+        local prior = addon.NativeListingRoles()
+        local selected = addon.ListingRoles()
+        if not addon.ApplySoloListingRoles(selected) then
+            return false, "Choose at least one role the game accepts."
+        end
+        if prior and not RolesMatch(prior, selected) then
+            roleChange = { prior = prior, applied = selected, revision = listingRoleRevision }
+        end
     end
     if not comment then
         C_LFGList.ClearCreationTextFields()
     end
-    if not RequestListingChange("create", C_LFGList.CreateListing, addon.ListingData(activities)) then
+    if not RequestListingChange("create", C_LFGList.CreateListing, roleChange, addon.ListingData(activities)) then
         return false, "WoW declined the listing. Check the selected dungeons and roles."
     end
     return true
@@ -821,6 +851,7 @@ events:RegisterEvent("PLAYER_TALENT_UPDATE")
 events:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
 events:RegisterEvent("LFG_LIST_AVAILABILITY_UPDATE")
 events:RegisterEvent("LFG_LIST_ENTRY_CREATION_FAILED")
+events:RegisterEvent("LFG_LIST_ROLE_UPDATE")
 events:RegisterEvent("INVITE_TO_PARTY_CONFIRMATION")
 events:RegisterEvent("INVITE_TRAVEL_PASS_CONFIRMATION")
 events:RegisterEvent("PLAYER_LEVEL_UP")
@@ -829,9 +860,15 @@ local repaintPending
 events:SetScript("OnEvent", function(_, event, ...)
     if event == "INVITE_TO_PARTY_CONFIRMATION" or event == "INVITE_TRAVEL_PASS_CONFIRMATION" then
         if inviteAttempt then inviteAttempt.needsConfirmation = true end
+    elseif event == "LFG_LIST_ROLE_UPDATE" then
+        listingRoleRevision = listingRoleRevision + 1
+        changed()
     elseif event == "LFG_LIST_ENTRY_CREATION_FAILED" then
         if listingPending and listingPending.kind == "create" then
             local request = listingPending
+            -- A delayed failure can belong to an earlier attempt. Only an
+            -- in-call refusal can safely undo changes to the native roles.
+            if not request.dispatching and uncertainCreate then return end
             listingPending = nil
             request.failed = true
             if not request.dispatching then
