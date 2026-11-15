@@ -546,6 +546,7 @@ function addon.Refresh()
     if showListing then
         local buttonLabel = grouped and "List Party" or "List Me"
         local canManage = addon.CanManageListing(grouped)
+        if canManage and GameTooltip:GetOwner() == parts.createListing then GameTooltip_Hide() end
         local friendly = addon.db.listingNewPlayerFriendly
         if active == true then
             local entry = read(C_LFGList.GetActiveEntryInfo(), "table")
@@ -812,7 +813,10 @@ local function BuildListingControls(parent)
     fade:SetToAlpha(1)
     fade:SetDuration(1.2)
     fade:SetSmoothing("IN_OUT")
-    submit:HookScript("OnHide", function() pulse:Stop() end)
+    submit:HookScript("OnHide", function(self)
+        pulse:Stop()
+        if GameTooltip:GetOwner() == self then GameTooltip_Hide() end
+    end)
     parts.updateListingStatus = function(active)
         light:SetShown(active ~= nil)
         if active == true then
@@ -978,6 +982,7 @@ local function BuildContents()
     end
     local room = CreateFrame("CheckButton", nil, groupFilter, "UICheckButtonTemplate")
     room:SetSize(21, 21)
+    room:SetMotionScriptsWhileDisabled(true)
     room:SetPoint("LEFT", 151, 0)
     local roomLabel = text(groupFilter, "Room for me", "GameFontHighlightSmall")
     roomLabel:SetPoint("LEFT", room, "RIGHT", 4, 0)

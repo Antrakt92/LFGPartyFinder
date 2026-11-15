@@ -72,18 +72,20 @@ function UnitIsGroupLeader() return leader end
 rosterUpdated()
 local submit = assert(visible("Button", "List Party"))
 assert(submit.enabled == false, "only the group leader can start a listing")
-local tooltip
+local tooltip, owner
 GameTooltip = {
-    GetOwner = function() end,
-    SetOwner = function() end,
+    GetOwner = function() return owner end,
+    SetOwner = function(_, control) owner = control end,
     SetText = function(_, value) tooltip = value end,
     Show = function() end,
 }
+function GameTooltip_Hide() owner = nil end
 submit.scripts.OnEnter(submit)
 assert(tooltip == "Only the party leader can list or unlist the party.")
 leader = true
-rosterUpdated()
-assert(submit.enabled == true, "promotion allows listing without reopening the window")
+assert(events.events.PARTY_LEADER_CHANGED, "the addon listens for the native leadership event")
+events.scripts.OnEvent(events, "PARTY_LEADER_CHANGED")
+assert(submit.enabled == true and owner == nil, "promotion enables listing and dismisses the old tooltip")
 active, leader = true, false
 rosterUpdated()
 assert(visible("Button", "Listed") == submit and submit.enabled == false)

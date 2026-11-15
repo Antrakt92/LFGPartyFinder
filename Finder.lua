@@ -890,6 +890,7 @@ events:RegisterEvent("INVITE_TO_PARTY_CONFIRMATION")
 events:RegisterEvent("INVITE_TRAVEL_PASS_CONFIRMATION")
 events:RegisterEvent("PLAYER_LEVEL_UP")
 events:RegisterEvent("GROUP_ROSTER_UPDATE")
+events:RegisterEvent("PARTY_LEADER_CHANGED")
 local repaintPending
 events:SetScript("OnEvent", function(_, event, ...)
     if event == "INVITE_TO_PARTY_CONFIRMATION" or event == "INVITE_TRAVEL_PASS_CONFIRMATION" then
