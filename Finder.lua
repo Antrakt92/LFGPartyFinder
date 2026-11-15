@@ -2,7 +2,8 @@ local _, addon = ...
 local read = addon.Read
 local category = addon.dungeonCategory
 local activeQuery, activeResults, pending, nextAction = {}, {}, nil, 0
-local openingRetry, queuedSearch, foreignSearch, callingSearch
+local openingRetry, queuedSearch, foreignSearch, callingSearch, drainingSearch
+local searchTimeout, searchDrainGrace = 6, 1
 local listingPending, uncertainCreate
 local listingRoleRevision = 0
 local inviteAttempt
@@ -223,7 +224,7 @@ local function DispatchQueuedSearch()
     local request = queuedSearch
     if not request then return end
     C_Timer.After(0, function()
-        if queuedSearch ~= request or pending or foreignSearch then return end
+        if queuedSearch ~= request or pending or foreignSearch or drainingSearch then return end
         queuedSearch = nil
         if not request.canRetry or request.canRetry() then
             addon.Search(request.canRetry)
@@ -234,14 +235,46 @@ local function DispatchQueuedSearch()
     end)
 end
 
+local function BeginSearchDrain(remainingCompletions)
+    -- Native search events have no request ID. Wait briefly for up to two
+    -- retired or overlapping requests before dispatching another search.
+    local alreadyDraining = drainingSearch and drainingSearch.remainingCompletions or 0
+    local drain = { remainingCompletions = math.min(alreadyDraining + remainingCompletions, 2) }
+    drainingSearch = drain
+    C_Timer.After(searchDrainGrace, function()
+        if drainingSearch ~= drain then return end
+        drainingSearch = nil
+        DispatchQueuedSearch()
+    end)
+end
+
+local function ConsumeUnownedSearchCompletion()
+    if foreignSearch then
+        local remainingCompletions = foreignSearch.remainingCompletions - 1
+        foreignSearch = nil
+        if remainingCompletions > 0 then
+            BeginSearchDrain(remainingCompletions)
+            return true
+        end
+    elseif drainingSearch then
+        drainingSearch.remainingCompletions = drainingSearch.remainingCompletions - 1
+        if drainingSearch.remainingCompletions > 0 then return true end
+        drainingSearch = nil
+    else
+        return false
+    end
+    DispatchQueuedSearch()
+    return true
+end
+
 function addon.Search(canRetry)
     if InCombatLockdown() then
         addon.status = "Finish combat before searching."
         changed()
         return false
     end
-    if foreignSearch or pending then
-        if foreignSearch or (pending and pending.discard) then
+    if foreignSearch or drainingSearch or pending then
+        if foreignSearch or drainingSearch or (pending and pending.discard) then
             queuedSearch = { canRetry = canRetry }
             addon.status = "Waiting for the previous search to finish…"
             changed()
@@ -267,12 +300,12 @@ function addon.Search(canRetry)
     end
     changed()
     if pending == request then
-        C_Timer.After(6, function()
+        C_Timer.After(searchTimeout, function()
             if pending ~= request then return end
             pending = nil
+            BeginSearchDrain(1)
             addon.status = request.discard and "Selection changed. Click Search." or "No response. Click Search to try again."
             changed()
-            DispatchQueuedSearch()
         end)
     end
     return true
@@ -281,7 +314,8 @@ end
 if type(C_LFGList.Search) == "function" then
     hooksecurefunc(C_LFGList, "Search", function()
         if callingSearch then return end
-        local token = {}
+        local overlaps = pending ~= nil or foreignSearch ~= nil
+        local token = { remainingCompletions = overlaps and 2 or 1 }
         foreignSearch = token
         if pending or openingRetry or next(activeQuery) then
             pending, openingRetry = nil, nil
@@ -291,10 +325,10 @@ if type(C_LFGList.Search) == "function" then
             addon.status = "Showing previous results. Click Search to refresh."
             C_Timer.After(0, changed)
         end
-        C_Timer.After(6, function()
+        C_Timer.After(searchTimeout, function()
             if foreignSearch ~= token then return end
             foreignSearch = nil
-            DispatchQueuedSearch()
+            BeginSearchDrain(token.remainingCompletions)
         end)
     end)
 end
@@ -877,10 +911,8 @@ events:SetScript("OnEvent", function(_, event, ...)
             end
         end
     elseif event == "LFG_LIST_SEARCH_RESULTS_RECEIVED" then
-        if foreignSearch then
-            foreignSearch = nil
-            DispatchQueuedSearch()
-        elseif pending and pending.discard then
+        if ConsumeUnownedSearchCompletion() then return end
+        if pending and pending.discard then
             pending = nil
             addon.status = "Selection changed. Click Search."
             changed()
@@ -889,10 +921,8 @@ events:SetScript("OnEvent", function(_, event, ...)
             FinishSearch(pending)
         end
     elseif event == "LFG_LIST_SEARCH_FAILED" then
-        if foreignSearch then
-            foreignSearch = nil
-            DispatchQueuedSearch()
-        elseif pending then
+        if ConsumeUnownedSearchCompletion() then return end
+        if pending then
             addon.status = pending.discard and "Selection changed. Click Search." or "Search failed. Try again."
             pending = nil
             changed()
