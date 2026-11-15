@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0 - 15-Nov-2026 — Listing comments in Settings
+
+- Write a listing comment in WoW's own field inside Settings and publish from there. Your draft is saved for reference between sessions.
+- Use List Me or List Party for a quick listing without a comment. List Party checks whether your party has room for the selected dungeons.
+- Preserve existing Blizzard drafts and let you reopen the comment editor after WoW refreshes the form or a listing ends.
+- Recover the first automatic search when the dungeon list is still loading, and keep equally ranked groups in WoW's result order.
+
 ## 1.0.2 - 15-Nov-2026 — Group roles and search fixes
 
 - See which roles Room for me uses while in a party or listed solo.
