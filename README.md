@@ -1,20 +1,20 @@
 <p align="center">
-  <img src="screenshots/logo.png" alt="Party Finder Forever map and compass logo" width="112" height="112">
+  <img src="screenshots/logo.png" alt="LFG Party Finder map and compass logo" width="112" height="112">
 </p>
 
-<h1 align="center">Party Finder Forever</h1>
+<h1 align="center">LFG Party Finder</h1>
 
 <p align="center">
-  Dungeon players and groups in the World of Warcraft: Forever Group Finder.
+  Dungeon LFG for the World of Warcraft: Forever Group Finder.
 </p>
 
 <p align="center">
-  <a href="https://github.com/Antrakt92/PartyFinderForever/releases/latest"><strong>Download for Forever</strong></a>
+  <a href="https://github.com/Antrakt92/LFGPartyFinder/releases/latest"><strong>Download for Forever</strong></a>
   · <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Antrakt92/PartyFinderForever/releases"><img src="https://img.shields.io/github/v/release/Antrakt92/PartyFinderForever?label=release&amp;color=22c55e" alt="Latest stable release"></a>
+  <a href="https://github.com/Antrakt92/LFGPartyFinder/releases"><img src="https://img.shields.io/github/v/release/Antrakt92/LFGPartyFinder?label=release&amp;color=22c55e" alt="Latest stable release"></a>
   <img src="https://img.shields.io/badge/WoW-Forever-3b82f6" alt="WoW: Forever">
 </p>
 
@@ -47,7 +47,7 @@ listing from the same panel.
 ## Installation
 
 Download the packaged ZIP under **Assets** in the
-[latest release](https://github.com/Antrakt92/PartyFinderForever/releases/latest).
+[latest release](https://github.com/Antrakt92/LFGPartyFinder/releases/latest).
 Extract the `PartyFinderForever` folder into `Interface/AddOns` in your WoW Forever
 client. The addon is standalone and is built for WoW Forever 1.60.1.
 
@@ -80,7 +80,7 @@ client. The addon is standalone and is built for WoW Forever 1.60.1.
 
 ## Help and feedback
 
-- `/pff` opens Party Finder Forever.
+- `/pff` opens LFG Party Finder.
 - `/pff settings` opens Settings.
-- Report a problem in [GitHub Issues](https://github.com/Antrakt92/PartyFinderForever/issues).
+- Report a problem in [GitHub Issues](https://github.com/Antrakt92/LFGPartyFinder/issues).
 - See [LICENSE](LICENSE) for reuse terms.

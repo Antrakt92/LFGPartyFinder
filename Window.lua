@@ -1,6 +1,6 @@
 local _, addon = ...
 local read = addon.Read
-local title = "Party Finder Forever"
+local title = "LFG Party Finder"
 local currentView, roleFilters = "players", {}
 local groupRoleFilters, roomForMe = {}, false
 local window, nativeLauncher

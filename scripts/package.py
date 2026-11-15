@@ -1,4 +1,4 @@
-"""Build and verify the installable Party Finder Forever ZIP."""
+"""Build and verify the installable LFG Party Finder ZIP."""
 
 import argparse
 import re
@@ -29,7 +29,7 @@ def main():
         parser.error("latest changelog version must match the TOC")
 
     args.out.mkdir(parents=True, exist_ok=True)
-    archive = args.out / f"{ADDON}-{version[1]}.zip"
+    archive = args.out / f"LFGPartyFinder-{version[1]}.zip"
     payload = {f"{ADDON}/{name}": (ROOT / name).read_bytes() for name in FILES}
     with ZipFile(archive, "w") as zipped:
         for name, data in payload.items():

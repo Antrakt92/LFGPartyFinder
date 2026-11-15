@@ -1,11 +1,11 @@
 ## Interface: 16001
-## Title: Party Finder Forever
+## Title: LFG Party Finder
 ## Category: Antrakt92
 ## Author: Antrakt
-## Version: 1.0.0
+## Version: 1.0.1
 ## Notes: Find dungeon groups and players in WoW Forever.
 ## IconTexture: Interface\Icons\inv_misc_map02
-## X-Website: https://github.com/Antrakt92/PartyFinderForever
+## X-Website: https://github.com/Antrakt92/LFGPartyFinder
 ## X-License: Custom (see LICENSE)
 ## SavedVariablesPerCharacter: PartyFinderForeverDB
 

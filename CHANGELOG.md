@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 - 15-Nov-2026 — LFG Party Finder
+
+- Party Finder Forever is now LFG Party Finder. Your settings and /pff command carry over.
+
 ## 1.0.0 - 15-Nov-2026 — First public release
 
 - Open Party Finder Forever from the standard Group Finder binding or its map tab.
