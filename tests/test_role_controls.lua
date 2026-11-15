@@ -66,4 +66,25 @@ active = false
 rosterUpdated()
 assert(room.enabled and room:GetChecked() and healer:GetChecked() and healer.enabled)
 assert(visible("FontString", "Healer needed") and not visible("FontString", "Tank needed"))
-print("Passed visible group filter roles, active solo role readback and unknown-role recovery")
+grouped = true
+local leader = false
+function UnitIsGroupLeader() return leader end
+rosterUpdated()
+local submit = assert(visible("Button", "List Party"))
+assert(submit.enabled == false, "only the group leader can start a listing")
+local tooltip
+GameTooltip = {
+    GetOwner = function() end,
+    SetOwner = function() end,
+    SetText = function(_, value) tooltip = value end,
+    Show = function() end,
+}
+submit.scripts.OnEnter(submit)
+assert(tooltip == "Only the party leader can list or unlist the party.")
+leader = true
+rosterUpdated()
+assert(submit.enabled == true, "promotion allows listing without reopening the window")
+active, leader = true, false
+rosterUpdated()
+assert(visible("Button", "Listed") == submit and submit.enabled == false)
+print("Passed visible filter roles, native role readback, and party listing permissions")

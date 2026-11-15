@@ -558,7 +558,7 @@ function addon.Refresh()
             buttonLabel = canManage and "Unlist" or "Listed"
         end
         parts.createListing:SetText(buttonLabel)
-        parts.createListing:SetEnabled(not waiting and (active == false or (active == true and canManage)))
+        parts.createListing:SetEnabled(canManage and active ~= nil and not waiting)
         parts.updateListingStatus(active)
     end
     for key, check in pairs(parts.roleChecks) do check:SetChecked(roleFilters[key] == true) end
@@ -785,6 +785,17 @@ local function BuildListingControls(parent)
     submit:SetPoint("RIGHT", options, "LEFT", -6, 0)
     paintButton(submit, true)
     parts.createListing = submit
+    submit:SetMotionScriptsWhileDisabled(true)
+    submit:SetScript("OnEnter", function(self)
+        local grouped = addon.ListingState()
+        if grouped ~= true or addon.CanManageListing(grouped) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Only the party leader can list or unlist the party.")
+        GameTooltip:Show()
+    end)
+    submit:SetScript("OnLeave", function(self)
+        if GameTooltip:GetOwner() == self then GameTooltip_Hide() end
+    end)
     local light = submit:CreateTexture(nil, "OVERLAY")
     light:SetSize(6, 6)
     light:SetPoint("LEFT", 6, 0)
