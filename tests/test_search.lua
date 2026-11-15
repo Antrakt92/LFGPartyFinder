@@ -299,5 +299,33 @@ combat = false
 searchRejected = true
 assert(not addon.Search())
 assert(addon.status:find("refused", 1, true))
+searchRejected = false
+
+C_LFGList.Search(2, 0, 0, nil, false, nil, {10})
+local sent = #requests
+assert(addon.Search(function() return true end) and #requests == sent)
+combat = true
+receive()
+advance(0)
+assert(#requests == sent and addon.status == "Search will resume after combat.")
+combat = false
+fire("PLAYER_REGEN_ENABLED")
+advance(0)
+assert(#requests == sent + 1, "a queued opening search survives combat")
+receive(1)
+assert(addon.players[1].id == 1)
+
+local windowOpen = true
+C_LFGList.Search(2, 0, 0, nil, false, nil, {10})
+sent = #requests
+assert(addon.Search(function() return windowOpen end))
+combat = true
+receive()
+advance(0)
+windowOpen = false
+combat = false
+fire("PLAYER_REGEN_ENABLED")
+advance(0)
+assert(#requests == sent, "closing the window still cancels a queued automatic search")
 
 print("Passed search ownership, late results, queued changes, refresh isolation, DB normalization and retry bounds")

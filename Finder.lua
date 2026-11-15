@@ -225,6 +225,11 @@ local function DispatchQueuedSearch()
     if not request then return end
     C_Timer.After(0, function()
         if queuedSearch ~= request or pending or foreignSearch or drainingSearch then return end
+        if InCombatLockdown() then
+            addon.status = "Search will resume after combat."
+            changed()
+            return
+        end
         queuedSearch = nil
         if not request.canRetry or request.canRetry() then
             addon.Search(request.canRetry)
@@ -891,10 +896,13 @@ events:RegisterEvent("INVITE_TRAVEL_PASS_CONFIRMATION")
 events:RegisterEvent("PLAYER_LEVEL_UP")
 events:RegisterEvent("GROUP_ROSTER_UPDATE")
 events:RegisterEvent("PARTY_LEADER_CHANGED")
+events:RegisterEvent("PLAYER_REGEN_ENABLED")
 local repaintPending
 events:SetScript("OnEvent", function(_, event, ...)
     if event == "INVITE_TO_PARTY_CONFIRMATION" or event == "INVITE_TRAVEL_PASS_CONFIRMATION" then
         if inviteAttempt then inviteAttempt.needsConfirmation = true end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        DispatchQueuedSearch()
     elseif event == "LFG_LIST_ROLE_UPDATE" then
         listingRoleRevision = listingRoleRevision + 1
         changed()
