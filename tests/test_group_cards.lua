@@ -84,7 +84,20 @@ for index, class in ipairs(expectedClasses) do
     local color = RAID_CLASS_COLORS[class]
     assert(red == color.r and green == color.g and blue == color.b)
 end
-assert(detailed.dungeon.width + detailed.dungeon.TOPLEFT[1] < detailed.width + slots[1].TOPRIGHT[1] - slots[1].width)
+assert(detailed.dungeon.TOPLEFT[2] < slots[1].TOPRIGHT[2] - slots[1].height,
+    "the dungeon name has its own row below the roster")
+local entry = detailed.entry
+local count, members, dungeons = entry.count, entry.members, entry.listedDungeons
+entry.count = 6
+entry.members = { members[1], members[2], members[3], members[4], {}, {} }
+entry.listedDungeons = { dungeons[1], { name = "Razorfen Kraul" } }
+addon.Refresh()
+assert(detailed.dungeon.width >= 150 and detailed.extraDungeons:GetText() == "+1",
+    "roster overflow does not shrink the multi-dungeon name")
+assert(detailed.dungeon.TOPLEFT[2] == detailed.extraDungeons.TOPRIGHT[2])
+assert(detailed.action.height == detailed.height - 2)
+entry.count, entry.members, entry.listedDungeons = count, members, dungeons
+addon.Refresh()
 assert(not slots[5]:IsVisible())
 assert(anonymous.members[1].roleIcon.atlas == addon.roles[1].icon and not anonymous.members[1].classBar:IsVisible())
 assert(anonymous.members[4].unknownRole:IsVisible() and not anonymous.members[4].roleIcon:IsVisible())

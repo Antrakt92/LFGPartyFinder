@@ -11,7 +11,7 @@ local parts = {}
 local playerGap = 2
 local cardHeight, actionWidth = 64, 25
 local playerRowHeight = cardHeight + 2
-local groupGap, visibleMemberSlots = 4, 5
+local groupCardHeight, groupGap, visibleMemberSlots = 78, 4, 5
 local memberIconSize, memberStep = 20, 22
 local columnsPerPage, groupColumns = 4, 2
 local fallbackResultsWidth = 392
@@ -216,7 +216,8 @@ end
 
 local function BuildCard(parent, width, group)
     local card = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    card:SetSize(width, cardHeight)
+    local height = group and groupCardHeight or cardHeight
+    card:SetSize(width, height)
     card:SetBackdrop({ bgFile = white, edgeFile = white, edgeSize = 1 })
     card:EnableMouse(true)
     CaptureCardPress(card, card)
@@ -239,14 +240,15 @@ local function BuildCard(parent, width, group)
     card.detail:SetWordWrap(false)
     card.detail:SetTextColor(unpack(detailColor))
     card.dungeon = text(card, "", "GameFontHighlightSmall")
-    card.dungeon:SetPoint("TOPLEFT", 6, -36)
+    local dungeonY = group and -48 or -36
+    card.dungeon:SetPoint("TOPLEFT", 6, dungeonY)
     card.dungeon:SetWordWrap(false)
     card.dungeon:SetTextColor(unpack(dungeonColor))
     card.extraDungeons = text(card, "", "GameFontHighlightSmall")
-    card.extraDungeons:SetPoint("TOPRIGHT", -actionWidth - 5, -36)
+    card.extraDungeons:SetPoint("TOPRIGHT", -actionWidth - 5, dungeonY)
     card.extraDungeons:SetTextColor(unpack(dungeonColor))
     card.zone = text(card, "", "GameFontHighlightSmall")
-    card.zone:SetPoint("TOPLEFT", 6, -49)
+    card.zone:SetPoint("TOPLEFT", 6, dungeonY - 13)
     card.zone:SetWordWrap(false)
     card.zone:SetTextColor(unpack(detailColor))
     if group then
@@ -280,7 +282,7 @@ local function BuildCard(parent, width, group)
         local entry = FinishCardPress(self, card, mouseButton)
         if not entry then return end
         if mouseButton == "RightButton" then OpenCardMenu(card, entry) else ActOnCard(entry) end
-    end, cardHeight - 2)
+    end, height - 2)
     CaptureCardPress(card.action, card)
     card.action:SetNormalFontObject(GameFontHighlightLarge)
     card.action:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -300,16 +302,15 @@ local function PaintCard(card, entry, compact, index)
     local memberCount = not compact and entry.members and math.min(#entry.members, visibleMemberSlots) or 0
     local overflow = not compact and entry.count > visibleMemberSlots
     local rosterWidth = memberCount * memberStep + (overflow and 23 or 0)
-    local textWidth = width - actionWidth - 11 - rosterWidth
+    local textWidth = width - actionWidth - 11
     card.detail:SetText(detail)
-    card.detail:SetWidth(compact and width - actionWidth - 52 or textWidth)
+    card.detail:SetWidth(compact and width - actionWidth - 52 or textWidth - rosterWidth)
     local extra = entry.listedDungeons and #entry.listedDungeons - 1 or 0
     card.dungeon:SetText(entry.activity and entry.activity.name or "Unknown dungeon")
     card.dungeon:SetWidth(textWidth - (extra > 0 and 20 or 0))
-    if not compact then card.extraDungeons:SetPoint("TOPRIGHT", -actionWidth - 5 - rosterWidth, -36) end
     card.extraDungeons:SetText(extra > 0 and ("+" .. extra) or "")
     card.zone:SetText(entry.area or "Unknown zone")
-    card.zone:SetWidth(width - actionWidth - 11)
+    card.zone:SetWidth(textWidth)
     local tint = index % 2 == 0 and 0.012 or 0
     card:SetBackdropColor(0.101 + tint, 0.090 + tint, 0.074 + tint, 1)
     local isNearby = compact and entry.rank ~= nil
@@ -370,7 +371,7 @@ local function RenderResults()
     if currentView == "groups" then
         local groups = parts.visibleGroups or {}
         count = #groups
-        if count > 0 then height = math.ceil(count / groupColumns) * (cardHeight + groupGap) - groupGap end
+        if count > 0 then height = math.ceil(count / groupColumns) * (groupCardHeight + groupGap) - groupGap end
         local windowHeight = read(window:GetHeight(), "number")
         local needsScrollbar = not windowHeight or height > windowHeight - groupsTop - resultsBottom
         local availableWidth = LayoutResults(groupsInset, needsScrollbar and scrollbarInset or groupsInset, groupsTop)
@@ -383,7 +384,7 @@ local function RenderResults()
             end
             card:SetWidth(width)
             card:SetPoint("TOPLEFT", (index - 1) % groupColumns * (width + groupGap),
-                -math.floor((index - 1) / groupColumns) * (cardHeight + groupGap))
+                -math.floor((index - 1) / groupColumns) * (groupCardHeight + groupGap))
             PaintCard(card, entry, false, index)
             card:Show()
         end
