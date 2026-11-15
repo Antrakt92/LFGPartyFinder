@@ -303,7 +303,7 @@ local function PaintCard(card, entry, compact, index)
     local overflow = not compact and entry.count > visibleMemberSlots
     local rosterWidth = memberCount * memberStep + (overflow and 23 or 0)
     local textWidth = width - actionWidth - 11
-    card.detail:SetText(detail)
+    card.detail:SetText(overflow and tostring(entry.count) or detail)
     card.detail:SetWidth(compact and width - actionWidth - 52 or textWidth - rosterWidth)
     local extra = entry.listedDungeons and #entry.listedDungeons - 1 or 0
     card.dungeon:SetText(entry.activity and entry.activity.name or "Unknown dungeon")

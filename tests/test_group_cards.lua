@@ -96,6 +96,7 @@ assert(detailed.dungeon.width >= 150 and detailed.extraDungeons:GetText() == "+1
     "roster overflow does not shrink the multi-dungeon name")
 assert(detailed.dungeon.TOPLEFT[2] == detailed.extraDungeons.TOPRIGHT[2])
 assert(detailed.action.height == detailed.height - 2)
+assert(detailed.detail:GetText() == "6", "overflow leaves a compact player count beside the roster")
 entry.count, entry.members, entry.listedDungeons = count, members, dungeons
 addon.Refresh()
 assert(not slots[5]:IsVisible())
