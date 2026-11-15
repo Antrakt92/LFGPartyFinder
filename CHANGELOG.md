@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2 - 15-Nov-2026 — Group roles and search fixes
+
+- See which roles Room for me uses while in a party or listed solo.
+- Show why only the party leader can list or unlist, and refresh the button when leadership changes.
+- Give dungeon names their own row on group cards.
+- Restore your previous roles when WoW immediately refuses to create a listing.
+- Reduce stale results after overlapping searches, and resume queued searches after combat.
+
 ## 1.0.1 - 15-Nov-2026 — LFG Party Finder
 
 - Party Finder Forever is now LFG Party Finder. Your settings and /pff command carry over.
