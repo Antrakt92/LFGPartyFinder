@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/Antrakt92/LFGPartyFinder/releases/latest"><strong>Download for Forever</strong></a>
+  · <a href="https://www.curseforge.com/wow/addons/party-finder-forever"><strong>CurseForge</strong></a>
   · <a href="CHANGELOG.md"><strong>Changelog</strong></a>
 </p>
 
@@ -46,7 +47,8 @@ listing from the same panel.
 
 ## Installation
 
-Download the packaged ZIP under **Assets** in the
+Install through [CurseForge](https://www.curseforge.com/wow/addons/party-finder-forever).
+For a manual install, download the packaged ZIP under **Assets** in the
 [latest release](https://github.com/Antrakt92/LFGPartyFinder/releases/latest).
 Extract the `PartyFinderForever` folder into `Interface/AddOns` in your WoW Forever
 client. The addon is standalone and is built for WoW Forever 1.60.1.
