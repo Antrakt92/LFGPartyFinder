@@ -1,7 +1,7 @@
 local _, addon = ...
 local read = addon.Read
 local title = "LFG Party Finder"
-local currentView, roleFilters = "players", {}
+local currentView, roleFilters, viewRevision = "players", {}, 0
 local groupRoleFilters, roomForMe = {}, false
 local window, nativeLauncher
 local commentEdit, commentPost, commentListing, nativeDraft, inlineComposer
@@ -588,6 +588,7 @@ local function SelectView(view, focusComment)
     if currentView == view then return end
     if inlineComposer then addon.EndNativeDraft() end
     currentView = view
+    viewRevision = viewRevision + 1
     parts.results:SetVerticalScroll(0)
     addon.Refresh()
     if view == "settings" then OpenListingDetails(focusComment) end
@@ -1214,8 +1215,11 @@ local function BuildContents()
             end
             -- Replacing an open scrollable menu can leave its old row positions in use.
             -- Let the menu finish closing before the dropdown builds the new list.
+            local revision = viewRevision
             C_Timer.After(0, function()
-                if dropdown:IsVisible() and not dropdown:IsMenuOpen() then dropdown:OpenMenu() end
+                if revision == viewRevision and dropdown:IsVisible() and not dropdown:IsMenuOpen() then
+                    dropdown:OpenMenu()
+                end
             end)
         end)
         allLevels:SetSelectionIgnored()
@@ -1448,6 +1452,7 @@ local function AddNativeLauncher()
         nativeLauncher:SetChecked(true)
     end)
     window:SetScript("OnHide", function()
+        viewRevision = viewRevision + 1
         if inlineComposer then addon.EndNativeDraft() end
         for texture, alpha in pairs(selectionAlpha) do texture:SetAlpha(alpha) end
         selectionAlpha = {}
@@ -1460,6 +1465,7 @@ local function AddNativeLauncher()
         if view and view ~= currentView then
             if inlineComposer then addon.EndNativeDraft() end
             currentView = view
+            viewRevision = viewRevision + 1
             parts.results:SetVerticalScroll(0)
         end
         window:Show()

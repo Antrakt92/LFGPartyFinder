@@ -62,4 +62,22 @@ dropdown:PickOption(1)
 LFGParentFrame:Hide()
 table.remove(deferred, 1)()
 assert(not dropdown:IsMenuOpen(), "do not reopen after the parent closes")
+
+LFGVanilla_ToggleFrame(1)
+dropdown:OpenMenu()
+dropdown:PickOption(1)
+local groups
+for _, frame in ipairs(frames) do
+    if frame.kind == "Button" and frame:IsVisible() and frame.label:match("^Groups") then groups = frame; break end
+end
+assert(groups).scripts.OnClick()
+table.remove(deferred, 1)()
+assert(dropdown:IsVisible() and not dropdown:IsMenuOpen(), "a deferred menu cannot cross tabs")
+
+dropdown:OpenMenu()
+dropdown:PickOption(1)
+LFGParentFrame:Hide()
+SlashCmdList.PARTYFINDERFOREVER()
+table.remove(deferred, 1)()
+assert(dropdown:IsVisible() and not dropdown:IsMenuOpen(), "a deferred menu cannot cross a close and reopen")
 print("Passed activity menu order, in-place dungeon checks, level changes and cancellation")
