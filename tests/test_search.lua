@@ -3,7 +3,7 @@ local root = arg[1] or "."
 local addon = {}
 local requests, timers, visibleIDs, results = {}, {}, {}, {}
 local level, combat, clock = 32, false, 0
-local searchRejected = false
+local searchRejected, searchFailedInline = false, false
 local activities = {
     [10] = { fullName = "Eligible dungeon", minLevelSuggestion = 20, maxLevelSuggestion = 60 },
     [20] = { fullName = "Higher dungeon", minLevelSuggestion = 33, maxLevelSuggestion = 60 },
@@ -62,6 +62,7 @@ C_LFGList = {
     Search = function(category, _, _, languages, _, _, ids)
         requests[#requests + 1] = { category = category, ids = ids, languages = languages }
         if searchRejected then return false end
+        if searchFailedInline then fire("LFG_LIST_SEARCH_FAILED") end
     end,
 }
 
@@ -300,6 +301,10 @@ searchRejected = true
 assert(not addon.Search())
 assert(addon.status:find("refused", 1, true))
 searchRejected = false
+searchFailedInline = true
+assert(not addon.Search() and addon.status == "Search failed. Try again.",
+    "a failure delivered inside the request must not count as an accepted opening search")
+searchFailedInline = false
 
 C_LFGList.Search(2, 0, 0, nil, false, nil, {10})
 local sent = #requests
@@ -362,5 +367,30 @@ assert(#addon.groups == #retainedGroupIDs)
 for index, group in ipairs(addon.groups) do
     assert(group.id == retainedGroupIDs[index], "unrelated cards do not shuffle when a group disappears")
 end
+
+Enum = { SendReportResult = { Success = 0, GeneralError = 1 }, ReportType = { GroupFinderPosting = 4 } }
+local reportedGroup = addon.groups[2]
+local visibleBeforeReport = addon.groups
+result(107, "New native result", 10)
+results[107].numMembers = 2
+visibleIDs = { 106, 107, 105, 104, 101 }
+fire("REPORT_PLAYER_RESULT", Enum.SendReportResult.GeneralError, Enum.ReportType.GroupFinderPosting)
+fire("REPORT_PLAYER_RESULT", Enum.SendReportResult.Success, 0)
+assert(addon.groups == visibleBeforeReport, "only successful Group Finder posting reports refresh the result snapshot")
+visibleIDs[2] = "unreadable ID"
+fire("REPORT_PLAYER_RESULT", Enum.SendReportResult.Success, Enum.ReportType.GroupFinderPosting)
+assert(addon.groups == visibleBeforeReport, "incomplete filtered IDs cannot prove which owned results were removed")
+visibleIDs[2] = 107
+fire("REPORT_PLAYER_RESULT", Enum.SendReportResult.Success, Enum.ReportType.GroupFinderPosting)
+local groupsAfterReport = { 101, 104, 105, 106 }
+assert(#addon.groups == #groupsAfterReport)
+for index, group in ipairs(addon.groups) do
+    assert(group.id == groupsAfterReport[index], "report refresh removes owned results without adding or reordering native entries")
+end
+ChatFrameUtil = { SendTell = function() error("Reported listings cannot start a whisper") end }
+addon.OpenWhisper(reportedGroup)
+fire("LFG_LIST_SEARCH_RESULT_UPDATED", reportedGroup.id)
+advance(0.2)
+assert(#addon.groups == #groupsAfterReport, "later per-result updates cannot restore a reported listing")
 
 print("Passed search ownership, late results, queued changes, refresh isolation, DB normalization and retry bounds")

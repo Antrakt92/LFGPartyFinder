@@ -299,6 +299,7 @@ function addon.Search(canRetry, onQueuedDispatchFailure)
     pending, callingSearch = request, true
     local ok, result = pcall(C_LFGList.Search, category, 0, 0, SearchLanguageFilter(), false, nil, ids)
     callingSearch = nil
+    if request.failed then return false end
     if pending == request and (not ok or read(result, "boolean") == false) then
         pending, addon.status = nil, "Group Finder refused the search."
         changed()
@@ -427,16 +428,20 @@ local function GroupClassSummary(members, counts, memberCount)
 end
 
 local function ResultSnapshot()
-    local _, results = C_LFGList.GetFilteredSearchResults()
+    local _, raw = C_LFGList.GetFilteredSearchResults()
+    local results = read(raw, "table")
     local ids, seen = {}, {}
-    for _, value in ipairs(read(results, "table") or {}) do
+    local complete = results ~= nil
+    for _, value in ipairs(results or {}) do
         local id = read(value, "number")
-        if id and not seen[id] then
+        if not id then
+            complete = false
+        elseif not seen[id] then
             local order = #ids + 1
             ids[order], seen[id] = id, order
         end
     end
-    return { ids = ids, seen = seen }
+    return { ids = ids, seen = seen }, complete
 end
 
 local function CollectResults(query, snapshot)
@@ -516,6 +521,24 @@ local function ShowResults(players, groups)
     addon.players, addon.groups = players, groups
     addon.status = nil
     changed()
+end
+
+local function PruneReportedResults()
+    if not activeResults.ids or openingRetry then return end
+    local filtered, complete = ResultSnapshot()
+    if not complete then return end
+    -- A native report can hide a row without removing its detail record.
+    -- Only remove IDs from the snapshot this addon already owns.
+    local ids, seen = {}, {}
+    for _, id in ipairs(activeResults.ids) do
+        if filtered.seen[id] then
+            local order = #ids + 1
+            ids[order], seen[id] = id, order
+        end
+    end
+    if #ids == #activeResults.ids then return end
+    activeResults = { ids = ids, seen = seen }
+    ShowResults(CollectResults(activeQuery, activeResults))
 end
 
 local function FinishSearch(request)
@@ -913,6 +936,7 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("LFG_LIST_SEARCH_RESULTS_RECEIVED")
 events:RegisterEvent("LFG_LIST_SEARCH_FAILED")
 events:RegisterEvent("LFG_LIST_SEARCH_RESULT_UPDATED")
+events:RegisterEvent("REPORT_PLAYER_RESULT")
 events:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 events:RegisterEvent("PLAYER_TALENT_UPDATE")
 events:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
@@ -960,10 +984,17 @@ events:SetScript("OnEvent", function(_, event, ...)
     elseif event == "LFG_LIST_SEARCH_FAILED" then
         if ConsumeUnownedSearchCompletion() then return end
         if pending then
+            pending.failed = true
             addon.status = pending.discard and "Selection changed. Click Search." or "Search failed. Try again."
             pending = nil
             changed()
             DispatchQueuedSearch()
+        end
+    elseif event == "REPORT_PLAYER_RESULT" then
+        local outcome, reportType = ...
+        if read(outcome, "number") == Enum.SendReportResult.Success
+            and read(reportType, "number") == Enum.ReportType.GroupFinderPosting then
+            PruneReportedResults()
         end
     elseif event == "LFG_LIST_SEARCH_RESULT_UPDATED" then
         local resultID = read((...), "number")
