@@ -5,7 +5,7 @@ local activeQuery, activeResults, pending, nextAction = {}, {}, nil, 0
 local openingRetry, queuedSearch, foreignSearch, callingSearch, drainingSearch
 local searchTimeout, searchDrainGrace = 6, 1
 local listingPending, uncertainCreate
-local listingRoleRevision = 0
+local listingRoleRevision, listingFailureRevision = 0, 0
 local inviteAttempt
 
 addon.defaults = {
@@ -726,6 +726,36 @@ function addon.RestoreListingRoleDraft(change)
     if RolesMatch(addon.NativeListingRoles(), change.applied) then return SetNativeListingRoles(change.prior) end
 end
 
+local function ScheduleListingTimeout(request)
+    C_Timer.After(5, function()
+        if listingPending ~= request then return end
+        listingPending = nil
+        if request.active then uncertainCreate = true end
+        changed()
+    end)
+end
+
+local listingRefusedMessage = "WoW declined the listing. Check the selected dungeons and roles."
+
+function addon.ListingFailureRevision()
+    return listingFailureRevision
+end
+
+function addon.ObserveNativeListingPost(previousFailureRevision)
+    if previousFailureRevision and previousFailureRevision ~= listingFailureRevision then
+        return false, listingRefusedMessage
+    end
+    local _, active, waiting = addon.ListingState()
+    if active == true or waiting then return true end
+    -- The stock Post handler just ran. Share its wait with direct addon listing
+    -- actions so another click cannot clear the text before the outcome.
+    local request = { kind = "create", active = true }
+    listingPending = request
+    ScheduleListingTimeout(request)
+    changed()
+    return true
+end
+
 local function RequestListingChange(kind, action, roleChange, ...)
     local request = { kind = kind, active = kind == "create", dispatching = true }
     listingPending = request
@@ -742,14 +772,7 @@ local function RequestListingChange(kind, action, roleChange, ...)
         changed()
         return false
     end
-    if listingPending == request then
-        C_Timer.After(5, function()
-            if listingPending ~= request then return end
-            listingPending = nil
-            if request.active then uncertainCreate = true end
-            changed()
-        end)
-    end
+    if listingPending == request then ScheduleListingTimeout(request) end
     changed()
     return true
 end
@@ -791,7 +814,7 @@ function addon.CreateListing()
         return false, "WoW could not clear the listing text. Open the comment form to review it."
     end
     if not RequestListingChange("create", create, roleChange, data) then
-        return false, "WoW declined the listing. Check the selected dungeons and roles."
+        return false, listingRefusedMessage
     end
     return true
 end
@@ -959,6 +982,7 @@ events:SetScript("OnEvent", function(_, event, ...)
         listingRoleRevision = listingRoleRevision + 1
         changed()
     elseif event == "LFG_LIST_ENTRY_CREATION_FAILED" then
+        listingFailureRevision = listingFailureRevision + 1
         if listingPending and listingPending.kind == "create" then
             local request = listingPending
             -- A delayed failure can belong to an earlier attempt. Only an
@@ -968,7 +992,7 @@ events:SetScript("OnEvent", function(_, event, ...)
             request.failed = true
             if not request.dispatching then
                 changed()
-                UIErrorsFrame:AddMessage("WoW declined the listing. Check the selected dungeons and roles.", 1, 0.32, 0.24)
+                UIErrorsFrame:AddMessage(listingRefusedMessage, 1, 0.32, 0.24)
             end
         end
     elseif event == "LFG_LIST_SEARCH_RESULTS_RECEIVED" then

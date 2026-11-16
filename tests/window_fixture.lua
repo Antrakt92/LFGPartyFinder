@@ -70,6 +70,11 @@ function methods:GetPoint(index)
     end
     return point, relative, relativePoint, x, y
 end
+function methods:GetPointByName(name)
+    for index, point in ipairs(self.points or {}) do
+        if point == name then return self:GetPoint(index) end
+    end
+end
 function methods:ClearAllPoints()
     for _, point in ipairs(self.points or {}) do self[point] = nil end
     self.points = {}

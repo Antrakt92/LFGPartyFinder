@@ -617,18 +617,34 @@ local function OpenNativeListing(keepOverlay)
     end
 end
 
+local function CommentAnchorsMatch(frame, points)
+    if frame:GetNumPoints() ~= #points then return false end
+    for _, expected in ipairs(points) do
+        local point, relative, relativePoint, x, y = frame:GetPointByName(expected[1])
+        if read(point, "string") ~= expected[1] or not canaccessvalue(relative) or relative ~= expected[2]
+            or read(relativePoint, "string") ~= expected[3]
+            or read(x, "number") ~= expected[4] or read(y, "number") ~= expected[5] then return false end
+    end
+    return true
+end
+
+local function SetCommentAnchors(frame, points)
+    if CommentAnchorsMatch(frame, points) then return end
+    frame:ClearAllPoints()
+    for _, point in ipairs(points) do frame:SetPoint(unpack(point, 1, 5)) end
+    if not CommentAnchorsMatch(frame, points) then error("Native frame could not be anchored") end
+end
+
 local function RestoreCommentControls(composer)
     local restored = true
     for _, original in ipairs(composer.frames) do
         local frame = original.frame
-        local anchors = pcall(function()
-            frame:ClearAllPoints()
-            for _, point in ipairs(original.points) do frame:SetPoint(unpack(point, 1, 5)) end
-        end)
+        local anchors = pcall(SetCommentAnchors, frame, original.points)
         local strata = pcall(frame.SetFrameStrata, frame, original.strata)
         local level = pcall(frame.SetFrameLevel, frame, original.level)
         restored = restored and anchors and strata and level
-            and frame:GetFrameStrata() == original.strata and frame:GetFrameLevel() == original.level
+            and read(frame:GetFrameStrata(), "string") == original.strata
+            and read(frame:GetFrameLevel(), "number") == original.level
     end
     return restored
 end
@@ -637,6 +653,7 @@ local function CloseInlineComposer()
     local composer = inlineComposer
     if not composer then return end
     inlineComposer = nil
+    if GameTooltip:GetOwner() == parts.commentReferenceOwner then GameTooltip_Hide() end
     parts.commentComposer:Hide()
     parts.commentFallback:Hide()
     parts.commentHint:Show()
@@ -745,11 +762,11 @@ end
 local function PositionCommentControls(composer)
     local pane = parts.commentComposer
     local comment, post = composer.frames[1].frame, composer.frames[2].frame
-    comment:ClearAllPoints()
-    comment:SetPoint("TOPLEFT", pane, "TOPLEFT", 0, 0)
-    comment:SetPoint("TOPRIGHT", pane, "TOPRIGHT", 0, 0)
-    post:ClearAllPoints()
-    post:SetPoint("TOPRIGHT", pane, "TOPRIGHT", 0, -55)
+    SetCommentAnchors(comment, {
+        { "TOPLEFT", pane, "TOPLEFT", 0, 0 },
+        { "TOPRIGHT", pane, "TOPRIGHT", 0, 0 },
+    })
+    SetCommentAnchors(post, { { "TOPRIGHT", pane, "TOPRIGHT", 0, -55 } })
 end
 
 local function ShowInlineComposer(comment, post)
@@ -762,7 +779,14 @@ local function ShowInlineComposer(comment, post)
             local level = read(frame:GetFrameLevel(), "number")
             if not strata or not level then error("Native frame layer unavailable") end
             local points = {}
-            for i = 1, frame:GetNumPoints() do points[i] = { frame:GetPoint(i) } end
+            for index = 1, frame:GetNumPoints() do
+                local point, relative, relativePoint, x, y = frame:GetPoint(index)
+                if not read(point, "string") or not canaccessvalue(relative) or not relative
+                    or not read(relativePoint, "string") or not read(x, "number") or not read(y, "number") then
+                    error("Native frame anchor unavailable")
+                end
+                points[index] = { point, relative, relativePoint, x, y }
+            end
             composer.frames[#composer.frames + 1] = { frame = frame, strata = strata, level = level, points = points }
         end
         local strata, level = window:GetFrameStrata(), pane:GetFrameLevel() + 2
@@ -770,7 +794,8 @@ local function ShowInlineComposer(comment, post)
             local frame = entry.frame
             frame:SetFrameStrata(strata)
             frame:SetFrameLevel(level)
-            if frame:GetFrameStrata() ~= strata or frame:GetFrameLevel() < level then
+            local actualLevel = read(frame:GetFrameLevel(), "number")
+            if read(frame:GetFrameStrata(), "string") ~= strata or not actualLevel or actualLevel < level then
                 error("Native frame could not be raised")
             end
         end
@@ -890,9 +915,24 @@ OpenListingDetails = function(focus)
         end
         if post and commentPost ~= post then
             commentPost = post
+            local previousFailureRevision
+            if read(post:HasScript("PreClick"), "boolean") == true then
+                post:HookScript("PreClick", function()
+                    previousFailureRevision = addon.ListingFailureRevision()
+                end)
+            end
             post:HookScript("OnClick", function()
-                -- The click can be followed by a delayed server response.
-                if inlineComposer and nativeDraft then nativeDraft.postAttempted = true end
+                local current = nativeDraft
+                local failureRevision = previousFailureRevision
+                previousFailureRevision = nil
+                if not current or current.listing ~= listing then return end
+                local attempted = current.postAttempted
+                current.postAttempted = true
+                local ok, reason = addon.ObserveNativeListingPost(failureRevision)
+                if not ok then
+                    current.postAttempted = attempted
+                    ListingError(reason)
+                end
             end)
         end
         if commentEdit ~= edit then
@@ -1035,11 +1075,28 @@ local function BuildSettings(parent)
     local composer = CreateFrame("Frame", nil, pane)
     composer:SetPoint("TOPLEFT", caption, "BOTTOMLEFT", 5, -7)
     composer:SetSize(377, 86)
-    local reference = text(composer, "", "GameFontDisableSmall")
-    reference:SetPoint("TOPLEFT", caption, "TOPLEFT", 110, 0)
-    reference:SetPoint("TOPRIGHT", pane, "TOPRIGHT", -17, -327)
+    local referenceOwner = CreateFrame("Frame", nil, composer)
+    referenceOwner:SetPoint("TOPLEFT", caption, "TOPLEFT", 110, 0)
+    referenceOwner:SetPoint("TOPRIGHT", pane, "TOPRIGHT", -17, -327)
+    referenceOwner:SetHeight(15)
+    referenceOwner:EnableMouse(true)
+    local reference = text(referenceOwner, "", "GameFontDisableSmall")
+    reference:SetPoint("TOPLEFT")
+    reference:SetPoint("TOPRIGHT")
     reference:SetWordWrap(false)
+    referenceOwner:SetScript("OnEnter", function(self)
+        local saved = read(reference:GetText(), "string")
+        if not saved then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Saved listing comment")
+        GameTooltip:AddLine(saved, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    referenceOwner:SetScript("OnLeave", function(self)
+        if GameTooltip:GetOwner() == self then GameTooltip_Hide() end
+    end)
     parts.commentReference = reference
+    parts.commentReferenceOwner = referenceOwner
 
     local useNative = button(pane, "Open Blizzard form", 118, function()
         local draft = nativeDraft

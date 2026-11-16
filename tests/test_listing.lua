@@ -378,9 +378,18 @@ local actualPost = CreateFrame("Button", nil, LFGParentFrame)
 actualPost:SetFrameLevel(4)
 actualPost:SetPoint("BOTTOMRIGHT", -24, 19)
 actualPost:SetText("List Self")
+function actualPost:HasScript(name) return name == "PreClick" end
 local nativePostClicks = 0
-local nativePost = function() nativePostClicks = nativePostClicks + 1 end
+local refuseNativePost = false
+local nativePost = function()
+    nativePostClicks = nativePostClicks + 1
+    if refuseNativePost then finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED") end
+end
 actualPost:SetScript("OnClick", nativePost)
+local function clickNativePost()
+    actualPost.scripts.PreClick(actualPost)
+    actualPost.scripts.OnClick(actualPost)
+end
 nativeView.Comment = actualComment
 LFGListingFrame.PostButton = actualPost
 C_LFGList.ClearCreationTextFields = function()
@@ -525,6 +534,42 @@ actualPost.SetFrameStrata = setPostStrata
 assert(retryComment:IsVisible() and nativeCategory == nil)
 retryComment.scripts.OnClick()
 assertInline()
+
+local clearPostPoints, setPostPoint = actualPost.ClearAllPoints, actualPost.SetPoint
+function actualPost:ClearAllPoints()
+    if not combat then clearPostPoints(self) end
+end
+function actualPost:SetPoint(...)
+    if not combat then setPostPoint(self, ...) end
+end
+combat = true
+loader.scripts.OnEvent(loader, "PLAYER_REGEN_DISABLED")
+assert(actualPost:GetPoint(1) == "TOPRIGHT" and actualPost:GetFrameStrata() == "MEDIUM",
+    "the combat model silently denies only the anchor restore")
+combat = false
+loader.scripts.OnEvent(loader, "PLAYER_REGEN_ENABLED")
+assertRestored()
+actualPost.ClearAllPoints, actualPost.SetPoint = clearPostPoints, setPostPoint
+local longComment = string.rep("Dungeon notes. ", 12) .. "|rRead this too."
+addon.db.listingComment = longComment
+retryComment.scripts.OnClick()
+assertInline()
+local reference = assert(find("FontString", (longComment:gsub("|", "||")))).parent
+local tooltipOwner, tooltipLine, tooltipWrap
+GameTooltip = {
+    GetOwner = function() return tooltipOwner end,
+    SetOwner = function(_, owner) tooltipOwner = owner end,
+    SetText = function() end,
+    Show = function() end,
+    AddLine = function(_, value, ...) tooltipLine, tooltipWrap = value, select(4, ...) end,
+}
+function GameTooltip_Hide() tooltipOwner = nil end
+addon.db.listingComment = "Newly typed comment"
+reference.scripts.OnEnter(reference)
+assert(tooltipOwner == reference and tooltipLine == longComment:gsub("|", "||") and tooltipWrap,
+    "the Settings tooltip wraps the entire escaped reference shown when the editor opened")
+addon.EndNativeDraft()
+assert(not tooltipOwner and not reference:IsVisible(), "unmounting the editor dismisses its tooltip")
 addon.db.listingComment = savedDraft
 addon.SetAutomaticDungeonSelection(false)
 find("Button", "Players").scripts.OnClick()
@@ -546,10 +591,30 @@ assert(focused and find("FontString", savedDraft))
 nativeComment = "New comment typed into the genuine field."
 commentChanged(edit, true)
 assert(addon.db.listingComment == nativeComment)
-actualPost.scripts.OnClick(actualPost)
+listingError = nil
+refuseNativePost = true
+clickNativePost()
+local _, _, refusedNativePost = addon.ListingState()
+assert(not refusedNativePost and listingError and nativeComment == addon.db.listingComment,
+    "a refusal inside the stock click does not start a wait even after an earlier timeout")
+assertInline()
+refuseNativePost = false
+clickNativePost()
+local _, _, nativePostPending = addon.ListingState()
+assert(nativePostPending and nativePostPending.kind == "create", "the native Post reserves the listing until its outcome")
+local nativePostTimer = deferred[#deferred]
+find("Button", "Players").scripts.OnClick()
+assert(find("Button", "Listing…") == submit and not submit.enabled)
+local publishedBeforeFollowup, textBeforeFollowup = #publications, nativeComment
+assert(not addon.CreateListing() and #publications == publishedBeforeFollowup and nativeComment == textBeforeFollowup,
+    "direct posting cannot overlap a pending native Post or clear its comment")
+find("Button", "Settings").scripts.OnClick()
 active = true
 finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
-assert(nativePostClicks == 1 and not focused)
+nativePostTimer()
+local _, publishedByNative, waitingForNative = addon.ListingState()
+assert(publishedByNative and not waitingForNative, "native activation settles the pending Post before its timer")
+assert(nativePostClicks == 2 and not focused)
 assertRestored()
 assert(nativeCategory == addon.dungeonCategory and #nativeActivities == 2
     and nativeComment == addon.db.listingComment, "a posted listing keeps its native state")
@@ -563,6 +628,12 @@ assertInline()
 find("Button", "Open Blizzard form").scripts.OnClick()
 assertRestored()
 assert(focused and not submit:IsVisible())
+clickNativePost()
+local _, _, fallbackPostPending = addon.ListingState()
+assert(fallbackPostPending and not addon.CreateListing(), "a Post after explicit handoff also reserves the managed draft")
+deferred[#deferred]()
+local _, _, fallbackStillPending = addon.ListingState()
+assert(not fallbackStillPending, "a missing native outcome allows a retry after the bounded wait")
 SlashCmdList.PARTYFINDERFOREVER("settings")
 assertInline()
 
