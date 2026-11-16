@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 - 16-Nov-2026 — Listing and search fixes
+
+- Wait for WoW to finish posting a listing with a comment before allowing another listing. If WoW immediately refuses the post, the comment editor stays open for a retry.
+- Restore the comment controls after combat and show the full saved draft when you hover over it in Settings.
+- Keep the dungeon menu closed after switching tabs or closing the window.
+- Remove listings that WoW hides after a successful report and handle a search that WoW refuses immediately.
+
 ## 1.1.0 - 15-Nov-2026 — Listing comments in Settings
 
 - Write a listing comment in WoW's own field inside Settings and publish from there. Your draft is saved for reference between sessions.
