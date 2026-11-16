@@ -21,4 +21,6 @@ jobs:
           luac5.1 -p Data.lua Finder.lua Window.lua tests/*.lua
           for test in tests/test_*.lua; do lua5.1 "$test" .; done
       - name: Verify package
-        run: python3 scripts/package.py
+        run: |
+          python3 tests/test_package.py
+          python3 scripts/package.py

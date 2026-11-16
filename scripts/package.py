@@ -1,6 +1,7 @@
 """Build and verify the installable LFG Party Finder ZIP."""
 
 import argparse
+from io import BytesIO
 import re
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
@@ -31,12 +32,20 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     archive = args.out / f"LFGPartyFinder-{version[1]}.zip"
     payload = {f"{ADDON}/{name}": (ROOT / name).read_bytes() for name in FILES}
-    with ZipFile(archive, "w") as zipped:
+    output = BytesIO()
+    with ZipFile(output, "w") as zipped:
         for name, data in payload.items():
             zipped.writestr(ZipInfo(name), data, compress_type=ZIP_DEFLATED, compresslevel=9)
-    with ZipFile(archive) as zipped:
+    with ZipFile(output) as zipped:
         if zipped.namelist() != list(payload) or any(zipped.read(name) != data for name, data in payload.items()):
             raise RuntimeError("archive does not match the source inventory")
+    contents = output.getvalue()
+    try:
+        with archive.open("xb") as destination:
+            destination.write(contents)
+    except FileExistsError:
+        if archive.read_bytes() != contents:
+            parser.error(f"{archive} already exists with different contents. Use a separate --out directory.")
     print(archive)
 
 
