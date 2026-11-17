@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0 - 17-Nov-2026 — Reset search filters
+
+- Reset class and role filters when they hide all results, without changing the selected dungeons or search languages.
+
 ## 1.1.1 - 16-Nov-2026 — Listing and search fixes
 
 - Wait for WoW to finish posting a listing with a comment before allowing another listing. If WoW immediately refuses the post, the comment editor stays open for a retry.

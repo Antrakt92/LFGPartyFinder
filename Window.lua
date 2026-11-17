@@ -453,6 +453,7 @@ local function RenderResults()
     end
     parts.content:SetHeight(math.max(1, height))
     local status = addon.status
+    local canResetFilters = false
     if not status then
         if currentView == "players" then
             if not addon.players then
@@ -461,6 +462,7 @@ local function RenderResults()
                 status = (count == 1 and "1 player" or count .. " players") .. " found  ·  " .. nearbyCount .. " nearby"
             elseif #addon.players > 0 then
                 status = "No players match your filters."
+                canResetFilters = true
             else
                 status = "No players found for the selected dungeons. Try Search again or choose another dungeon."
             end
@@ -469,18 +471,21 @@ local function RenderResults()
                 status = count == 1 and "1 group" or count .. " groups"
             elseif addon.groups and #addon.groups > 0 then
                 status = "No groups match your filters."
+                canResetFilters = true
             else
                 status = addon.groups and "No groups found for the selected dungeons." or "Choose a dungeon and click Search."
             end
         end
     end
     parts.status:SetText(status)
+    parts.resetFilters:SetShown(canResetFilters)
 end
 
 function addon.Refresh()
     if not window or not window:IsVisible() then return end
     parts.results:SetShown(currentView == "players" or currentView == "groups")
     parts.status:SetShown(parts.results:IsShown())
+    if not parts.results:IsShown() then parts.resetFilters:Hide() end
     parts.roleFilter:SetShown(currentView == "players")
     parts.groupFilter:SetShown(currentView == "groups")
     parts.classHeaders:SetShown(currentView == "players")
@@ -562,6 +567,7 @@ function addon.Refresh()
         parts.updateListingStatus(active)
     end
     for key, check in pairs(parts.roleChecks) do check:SetChecked(roleFilters[key] == true) end
+    for key, check in pairs(parts.groupRoleChecks) do check:SetChecked(groupRoleFilters[key] == true) end
     parts.header:EnableMouseWheel(currentView == "players")
     if currentView ~= "players" then parts.pageLabel:Hide() end
     if parts.results:IsShown() then RenderResults() end
@@ -1333,12 +1339,14 @@ local function BuildContents()
         parts.results:SetVerticalScroll(0)
         addon.Refresh()
     end
+    parts.groupRoleChecks = {}
     for index, role in ipairs(addon.roles) do
         local check = iconCheck(groupFilter, role, "Has " .. role.label, function(self)
             groupRoleFilters[role.key] = self:GetChecked() == true or nil
             refreshGroupFilters()
         end, "Shows groups with at least one of the checked roles already filled.")
         check:SetPoint("LEFT", 57 + (index - 1) * 30, 0)
+        parts.groupRoleChecks[role.key] = check
     end
     local room = CreateFrame("CheckButton", nil, groupFilter, "UICheckButtonTemplate")
     room:SetSize(21, 21)
@@ -1427,6 +1435,20 @@ local function BuildContents()
     parts.status:SetPoint("TOPLEFT", 12, -141)
     parts.status:SetPoint("TOPRIGHT", -65, -141)
     parts.status:SetTextColor(0.80, 0.74, 0.64)
+    parts.resetFilters = button(header, "Reset filters", 88, function()
+        if not parts.resetFilters:IsVisible() then return end
+        if currentView == "players" then
+            roleFilters = {}
+        elseif currentView == "groups" then
+            groupRoleFilters, roomForMe = {}, false
+        end
+        addon.db.excludedClasses = {}
+        classPage = 1
+        parts.results:SetVerticalScroll(0)
+        addon.Refresh()
+    end, 20)
+    parts.resetFilters:SetPoint("RIGHT", header, "TOPRIGHT", -65, -147)
+    parts.resetFilters:Hide()
     local scroll = CreateFrame("ScrollFrame", nil, window, "UIPanelScrollFrameTemplate")
     scroll.scrollBarHideable = true
     ScrollFrame_OnScrollRangeChanged(scroll, 0, 0)

@@ -61,6 +61,7 @@ client. The addon is standalone and is built for WoW Forever 1.60.1.
    is selected automatically until you choose dungeons by hand or turn that setting off.
 3. Switch between **Players** and **Groups**. Click a class icon to include or
    exclude it in both views, or use **All languages** to narrow the search languages.
+   If class or role filters hide all results, click **Reset filters** to see them again.
 4. Click **+** to invite a player or contact a group leader. Right-click a card for
    **Send Message** and other actions.
 

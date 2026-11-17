@@ -167,6 +167,15 @@ classCountsAvailable = false
 search()
 events.scripts.OnEvent(events, "LFG_LIST_SEARCH_RESULTS_RECEIVED")
 assert(find("Button", "Groups (0)"), "a partial class count cannot confirm the group has none of the excluded classes")
+assert(find("FontString", "No groups match your filters."))
+local resetFilters = assert(find("Button", "Reset filters"))
+local selections, searchLanguages = addon.db.selectedDungeons, addon.db.searchLanguages
+resetFilters.scripts.OnClick()
+assert(find("Button", "Groups (2)") and not resetFilters:IsVisible())
+assert(not next(addon.db.excludedClasses) and mage:GetChecked() and priest:GetChecked())
+assert(addon.db.selectedDungeons == selections and addon.db.searchLanguages == searchLanguages)
+check(mage, false)
+check(priest, false)
 
 addon.players = {
     { id = 50, name = "Solo mage", count = 1, class = "MAGE" },
