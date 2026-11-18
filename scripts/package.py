@@ -22,8 +22,9 @@ def main():
     version = re.search(r"^## Version: (\d+\.\d+\.\d+)$", toc, re.MULTILINE)
     if not version or "## Interface: 16001" not in toc.splitlines():
         parser.error("TOC must declare the release version and Forever interface")
-    if tuple(line.strip() for line in toc.splitlines() if line.endswith(".lua")) != RUNTIME:
-        parser.error("TOC Lua inventory or load order does not match the package")
+    entries = (line.strip() for line in toc.splitlines())
+    if tuple(entry for entry in entries if entry and not entry.startswith("#")) != RUNTIME:
+        parser.error("TOC file inventory or load order does not match the package")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     heading = next((line for line in changelog.splitlines() if line.startswith("## ")), "")
     if not heading.startswith(f"## {version[1]} - "):
