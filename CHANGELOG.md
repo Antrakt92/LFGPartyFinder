@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1 - 18-Nov-2026 — Listing and filter fixes
+
+- Wait for a listing submitted through Blizzard's window before allowing List Me to post again.
+- Recover the first automatic search when Blizzard's search interrupts it.
+- Keep Reset filters available when a search status message appears above retained results.
+- Show all levels leaves dungeon selection empty when no dungeon is recommended. You can still select one manually.
+
 ## 1.2.0 - 17-Nov-2026 — Reset search filters
 
 - Reset class and role filters when they hide all results, without changing the selected dungeons or search languages.
