@@ -232,8 +232,8 @@ local function DispatchQueuedSearch()
         end
         queuedSearch = nil
         if not request.canRetry or request.canRetry() then
-            local accepted = addon.Search(request.canRetry, request.onDispatchFailure)
-            if not accepted and request.onDispatchFailure then request.onDispatchFailure() end
+            local accepted = addon.Search(request.canRetry, request.onInterrupted)
+            if not accepted and request.onInterrupted then request.onInterrupted() end
         else
             addon.status = "Click Search to refresh."
             changed()
@@ -273,7 +273,7 @@ local function ConsumeUnownedSearchCompletion()
     return true
 end
 
-function addon.Search(canRetry, onQueuedDispatchFailure)
+function addon.Search(canRetry, onInterrupted)
     if InCombatLockdown() then
         addon.status = "Finish combat before searching."
         changed()
@@ -281,7 +281,7 @@ function addon.Search(canRetry, onQueuedDispatchFailure)
     end
     if foreignSearch or drainingSearch or pending then
         if foreignSearch or drainingSearch or (pending and pending.discard) then
-            queuedSearch = { canRetry = canRetry, onDispatchFailure = onQueuedDispatchFailure }
+            queuedSearch = { canRetry = canRetry, onInterrupted = onInterrupted }
             addon.status = "Waiting for the previous search to finish…"
             changed()
         end
@@ -294,7 +294,7 @@ function addon.Search(canRetry, onQueuedDispatchFailure)
         return false
     end
 
-    local request = { activities = activities, canRetry = canRetry }
+    local request = { activities = activities, canRetry = canRetry, onInterrupted = onInterrupted }
     ResetSearchResults("Searching…")
     pending, callingSearch = request, true
     local ok, result = pcall(C_LFGList.Search, category, 0, 0, SearchLanguageFilter(), false, nil, ids)
@@ -325,11 +325,15 @@ if type(C_LFGList.Search) == "function" then
         local token = { remainingCompletions = overlaps and 2 or 1 }
         foreignSearch = token
         if pending or openingRetry or next(activeQuery) then
+            local interrupted = pending and not pending.discard and pending or openingRetry
             pending, openingRetry = nil, nil
             activeResults = {}
             for _, entry in ipairs(addon.players or {}) do entry.target = nil end
             for _, entry in ipairs(addon.groups or {}) do entry.target = nil end
-            addon.status = "Showing previous results. Click Search to refresh."
+            local hasPreviousResults = #(addon.players or {}) > 0 or #(addon.groups or {}) > 0
+            addon.status = hasPreviousResults and "Showing previous results. Click Search to refresh."
+                or "Click Search to refresh."
+            if interrupted and interrupted.onInterrupted then interrupted.onInterrupted() end
             C_Timer.After(0, changed)
         end
         C_Timer.After(searchTimeout, function()
@@ -569,7 +573,8 @@ local function FinishSearch(request)
             updatedPlayers, updatedGroups = CollectResults(request.activities, updated)
         end
         if #updatedPlayers == 0 and #updatedGroups == 0 and request.canRetry() and not InCombatLockdown() then
-            addon.Search()
+            local accepted = addon.Search(nil, request.onInterrupted)
+            if not accepted and request.onInterrupted then request.onInterrupted() end
         else
             activeResults = updated
             ShowResults(updatedPlayers, updatedGroups)

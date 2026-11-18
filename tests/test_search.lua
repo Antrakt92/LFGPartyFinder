@@ -293,6 +293,31 @@ receive()
 advance(1)
 assert(#requests == before + 2 and #addon.players == 0 and not addon.status)
 
+local function assertInterruptedOpeningSearch(stage)
+    local interruptions = 0
+    assert(addon.Search(function() return true end, function() interruptions = interruptions + 1 end))
+    if stage ~= "pending" then
+        receive()
+        assert(addon.status == "Checking for listings…")
+    end
+    if stage == "retry" then
+        advance(1)
+        assert(addon.status == "Searching…")
+    end
+    C_LFGList.Search(2, 0, 0, nil, false, nil, {10})
+    local dispatched = #requests
+    assert(interruptions == 1, "the window can try its first search on the next open")
+    assert(addon.status == "Click Search to refresh.", "an interrupted opening search has no previous rows")
+    receive(3)
+    advance(1)
+    assert(interruptions == 1 and #requests == dispatched and #addon.players == 0,
+        "the interrupted opener neither dispatches behind the native view nor adopts its results")
+end
+
+assertInterruptedOpeningSearch("pending")
+assertInterruptedOpeningSearch("settling")
+assertInterruptedOpeningSearch("retry")
+
 combat = true
 before = #requests
 assert(not addon.Search() and #requests == before)
