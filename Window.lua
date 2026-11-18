@@ -830,6 +830,37 @@ local function ListingError(reason)
     UIErrorsFrame:AddMessage(reason, 1, 0.32, 0.24)
 end
 
+local function TrackNativeListingPost(listing)
+    local post = listing and listing.PostButton
+    if not post or commentPost == post then return end
+    commentPost = post
+    local hasPreClick = read(post:HasScript("PreClick"), "boolean") == true
+    local failureRevision
+    if hasPreClick then
+        post:HookScript("PreClick", function()
+            local _, active = addon.ListingState()
+            failureRevision = nil
+            if active == false and listing.dirty and listing:IsAnyActivitySelected() then
+                failureRevision = addon.ListingFailureRevision()
+            end
+        end)
+    end
+    post:HookScript("OnClick", function()
+        local revision = failureRevision
+        failureRevision = nil
+        local current = nativeDraft
+        if current and current.listing ~= listing then current = nil end
+        if revision == nil and (hasPreClick or not current) then return end
+        local attempted = current and current.postAttempted
+        if current then current.postAttempted = true end
+        local ok, reason = addon.ObserveNativeListingPost(revision)
+        if not ok and current then
+            current.postAttempted = attempted
+            ListingError(reason)
+        end
+    end)
+end
+
 OpenListingDetails = function(focus)
     if inlineComposer then
         if focus and nativeDraft then nativeDraft.edit:SetFocus() end
@@ -924,28 +955,7 @@ OpenListingDetails = function(focus)
                 end
             end)
         end
-        if post and commentPost ~= post then
-            commentPost = post
-            local previousFailureRevision
-            if read(post:HasScript("PreClick"), "boolean") == true then
-                post:HookScript("PreClick", function()
-                    previousFailureRevision = addon.ListingFailureRevision()
-                end)
-            end
-            post:HookScript("OnClick", function()
-                local current = nativeDraft
-                local failureRevision = previousFailureRevision
-                previousFailureRevision = nil
-                if not current or current.listing ~= listing then return end
-                local attempted = current.postAttempted
-                current.postAttempted = true
-                local ok, reason = addon.ObserveNativeListingPost(failureRevision)
-                if not ok then
-                    current.postAttempted = attempted
-                    ListingError(reason)
-                end
-            end)
-        end
+        TrackNativeListingPost(listing)
         if commentEdit ~= edit then
             commentEdit = edit
             edit:HookScript("OnTextChanged", function(self, fromUser)
@@ -1506,6 +1516,7 @@ local showEmbedded
 
 local function AddNativeLauncher()
     local parent = LFGParentFrame
+    TrackNativeListingPost(LFGListingFrame)
     if nativeLauncher or not parent or not parent.ListingTab or not parent.BrowsingTab or not parent.WhoListingTab then return end
 
     window = CreateFrame("Frame", nil, parent, "BackdropTemplate")

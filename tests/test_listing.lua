@@ -381,13 +381,15 @@ actualPost:SetText("List Self")
 function actualPost:HasScript(name) return name == "PreClick" end
 local nativePostClicks = 0
 local refuseNativePost = false
+local nativePostEffect
 local nativePost = function()
     nativePostClicks = nativePostClicks + 1
     if refuseNativePost then finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED") end
+    if nativePostEffect then nativePostEffect() end
 end
 actualPost:SetScript("OnClick", nativePost)
 local function clickNativePost()
-    actualPost.scripts.PreClick(actualPost)
+    if actualPost.scripts.PreClick then actualPost.scripts.PreClick(actualPost) end
     actualPost.scripts.OnClick(actualPost)
 end
 nativeView.Comment = actualComment
@@ -415,6 +417,32 @@ local function assertRestored()
 end
 
 local settings = assert(find("Button", "Settings"))
+loader.scripts.OnEvent(loader, "ADDON_LOADED", "Blizzard_GroupFinder_VanillaStyle")
+LFGListingFrame:SetCategorySelection(9)
+LFGListingFrame:SetActivity(5, true)
+nativeComment = "Already submitted from the Blizzard form"
+cleared = false
+local stockClicks, directPublications = nativePostClicks, #publications
+clickNativePost()
+assert(nativePostClicks == stockClicks + 1 and not submit.enabled,
+    "a stock post before ever opening the addon editor starts the shared wait")
+assert(not addon.CreateListing() and not cleared and #publications == directPublications
+    and nativeComment == "Already submitted from the Blizzard form",
+    "quick listing cannot resubmit or erase the stock comment in flight")
+active = true
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+local _, stockActive, stockWaiting = addon.ListingState()
+assert(stockActive and not stockWaiting, "a stock success releases the shared wait")
+LFGListingFrame:SetAllActivities(false)
+nativePostEffect = function()
+    active = false
+    finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+end
+clickNativePost()
+nativePostEffect = nil
+assert(not select(3, addon.ListingState()) and submit.enabled,
+    "a stock removal that finishes inside its click does not start a creation wait")
+
 LFGListingFrame:SetCategorySelection(9)
 LFGListingFrame:SetActivity(5, true)
 nativeComment = "Unrelated Blizzard draft"
@@ -593,6 +621,7 @@ commentChanged(edit, true)
 assert(addon.db.listingComment == nativeComment)
 listingError = nil
 refuseNativePost = true
+local clicksBeforeInlinePost = nativePostClicks
 clickNativePost()
 local _, _, refusedNativePost = addon.ListingState()
 assert(not refusedNativePost and listingError and nativeComment == addon.db.listingComment,
@@ -614,7 +643,7 @@ finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
 nativePostTimer()
 local _, publishedByNative, waitingForNative = addon.ListingState()
 assert(publishedByNative and not waitingForNative, "native activation settles the pending Post before its timer")
-assert(nativePostClicks == 2 and not focused)
+assert(nativePostClicks == clicksBeforeInlinePost + 2 and not focused)
 assertRestored()
 assert(nativeCategory == addon.dungeonCategory and #nativeActivities == 2
     and nativeComment == addon.db.listingComment, "a posted listing keeps its native state")
