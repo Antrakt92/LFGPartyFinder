@@ -418,4 +418,23 @@ fire("LFG_LIST_SEARCH_RESULT_UPDATED", reportedGroup.id)
 advance(0.2)
 assert(#addon.groups == #groupsAfterReport, "later per-result updates cannot restore a reported listing")
 
+addon.db.activities = {}
+addon.db.manualDungeonSelection = false
+addon.db.showAllLevels = true
+level = 10
+assert(#addon.Activities() == 3 and #addon.SelectedActivities() == 0,
+    "viewing every level does not automatically choose a dungeon outside the recommended level range")
+before = #requests
+assert(not addon.Search() and #requests == before)
+level = 32
+fire("PLAYER_LEVEL_UP")
+assert(addon.SelectedActivities()[1].id == 10, "a newly recommended dungeon becomes the automatic choice")
+level = 10
+addon.ToggleActivity(20)
+assert(addon.db.manualDungeonSelection and addon.SelectedActivities()[1].id == 20,
+    "a player can still choose an off-level dungeon explicitly")
+assert(addon.Search() and requests[#requests].ids[1] == 20)
+receive(4)
+assert(addon.players[1].id == 4)
+
 print("Passed search ownership, late results, queued changes, refresh isolation, DB normalization and retry bounds")

@@ -154,7 +154,7 @@ function addon.SelectedActivities(available)
         for _, entry in ipairs(available) do
             if entry.recommended then return { entry } end
         end
-        return { available[1] }
+        return {}
     end
     local result = {}
     for _, entry in ipairs(available) do
