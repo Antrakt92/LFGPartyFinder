@@ -168,19 +168,34 @@ search()
 events.scripts.OnEvent(events, "LFG_LIST_SEARCH_RESULTS_RECEIVED")
 assert(find("Button", "Groups (0)"), "a partial class count cannot confirm the group has none of the excluded classes")
 assert(find("FontString", "No groups match your filters."))
-local resetFilters = assert(find("Button", "Reset filters"))
-local selections, searchLanguages = addon.db.selectedDungeons, addon.db.searchLanguages
+local resetFilters = find("Button", "Reset filters")
+local selections, searchLanguages = addon.db.activities, addon.db.searchLanguages
+local combat = true
+function InCombatLockdown() return combat end
+search()
+combat = false
+addon.Refresh()
+local combatStatus = find("FontString", "Finish combat before searching.")
+assert(resetFilters:IsVisible(), "groups can reset filters while a blocked search leaves a status")
+assert(combatStatus.TOPRIGHT[1] == resetFilters and combatStatus.TOPRIGHT[2] == "TOPLEFT"
+    and combatStatus.TOPRIGHT[3] < 0, "the status text has a gap before the visible action")
+check(room, true)
+check(healer, true)
 resetFilters.scripts.OnClick()
 assert(find("Button", "Groups (2)") and not resetFilters:IsVisible())
+assert(combatStatus:GetText() == "Finish combat before searching." and combatStatus.TOPRIGHT[1] == -65,
+    "reset preserves the search status and restores its usual width")
+assert(not room:GetChecked() and not healer:GetChecked())
 assert(not next(addon.db.excludedClasses) and mage:GetChecked() and priest:GetChecked())
-assert(addon.db.selectedDungeons == selections and addon.db.searchLanguages == searchLanguages)
+assert(addon.db.activities == selections and addon.db.searchLanguages == searchLanguages)
 check(mage, false)
 check(priest, false)
 
+local damageRole = { tank = false, healer = false, dps = true }
 addon.players = {
-    { id = 50, name = "Solo mage", count = 1, class = "MAGE" },
-    { id = 51, name = "Solo priest", count = 1, class = "PRIEST" },
-    { id = 52, name = "Solo rogue", count = 1, class = "ROGUE" },
+    { id = 50, name = "Solo mage", count = 1, class = "MAGE", roles = damageRole },
+    { id = 51, name = "Solo priest", count = 1, class = "PRIEST", roles = damageRole },
+    { id = 52, name = "Solo rogue", count = 1, class = "ROGUE", roles = damageRole },
 }
 addon.Refresh()
 find("Button", "Players (1)").scripts.OnClick()
@@ -189,6 +204,26 @@ addon.InitializeSettings()
 assert(addon.db.excludedClasses.MAGE and addon.db.excludedClasses.PRIEST)
 check(mage, true)
 assert(find("Button", "Players (2)") and find("FontString", "Solo mage"))
+local playerRoleFilter = find("FontString", "Find roles").parent
+local playerRoleCheck
+for _, frame in ipairs(frames) do
+    if frame.parent == playerRoleFilter and frame.icon and frame.icon.atlas == addon.roles[1].icon then
+        playerRoleCheck = frame
+        break
+    end
+end
+check(assert(playerRoleCheck), true)
+assert(find("Button", "Players (0)") and resetFilters:IsVisible())
+resetFilters.scripts.OnClick()
+assert(find("Button", "Players (3)") and not resetFilters:IsVisible())
+assert(not playerRoleCheck:GetChecked() and priest:GetChecked() and not next(addon.db.excludedClasses))
+assert(combatStatus:GetText() == "Finish combat before searching.")
+local players = addon.players
+addon.players = nil
+addon.Refresh()
+assert(find("Button", "Groups (2)") and not resetFilters:IsVisible(),
+    "another view's existing results do not offer a reset before this view has results")
+addon.players = players
 local languages = find("DropdownButton", "All languages")
 languages:OpenMenu()
 local russian

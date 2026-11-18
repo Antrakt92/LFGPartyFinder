@@ -453,29 +453,34 @@ local function RenderResults()
     end
     parts.content:SetHeight(math.max(1, height))
     local status = addon.status
-    local canResetFilters = false
+    local source = addon.groups
+    if currentView == "players" then source = addon.players end
+    local canResetFilters = count == 0 and source ~= nil and #source > 0
     if not status then
         if currentView == "players" then
             if not addon.players then
                 status = "Choose a dungeon and click Search."
             elseif count > 0 then
                 status = (count == 1 and "1 player" or count .. " players") .. " found  ·  " .. nearbyCount .. " nearby"
-            elseif #addon.players > 0 then
+            elseif canResetFilters then
                 status = "No players match your filters."
-                canResetFilters = true
             else
                 status = "No players found for the selected dungeons. Try Search again or choose another dungeon."
             end
         else
             if count > 0 then
                 status = count == 1 and "1 group" or count .. " groups"
-            elseif addon.groups and #addon.groups > 0 then
+            elseif canResetFilters then
                 status = "No groups match your filters."
-                canResetFilters = true
             else
                 status = addon.groups and "No groups found for the selected dungeons." or "Choose a dungeon and click Search."
             end
         end
+    end
+    if canResetFilters then
+        parts.status:SetPoint("TOPRIGHT", parts.resetFilters, "TOPLEFT", -8, -4)
+    else
+        parts.status:SetPoint("TOPRIGHT", -65, -141)
     end
     parts.status:SetText(status)
     parts.resetFilters:SetShown(canResetFilters)
