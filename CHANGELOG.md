@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.2 - 19-Nov-2026 — Listing and search recovery
+
+- Keep Blizzard's Post button disabled while a listing request is pending. Restore its normal availability when the request settles and combat restrictions permit it.
+- Retry automatic search on the next open after a search error or timeout.
+
 ## 1.2.1 - 18-Nov-2026 — Listing and filter fixes
 
 - Wait for a listing submitted through Blizzard's window before allowing List Me to post again.

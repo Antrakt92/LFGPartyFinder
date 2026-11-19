@@ -2,7 +2,7 @@
 ## Title: LFG Party Finder
 ## Category: Antrakt92
 ## Author: Antrakt
-## Version: 1.2.1
+## Version: 1.2.2
 ## Notes: Find dungeon groups and players in WoW Forever.
 ## IconTexture: Interface\Icons\inv_misc_map02
 ## X-Website: https://github.com/Antrakt92/LFGPartyFinder
