@@ -318,6 +318,26 @@ assertInterruptedOpeningSearch("pending")
 assertInterruptedOpeningSearch("settling")
 assertInterruptedOpeningSearch("retry")
 
+local interruptions = 0
+assert(addon.Search(function() return true end, function() interruptions = interruptions + 1 end))
+fire("LFG_LIST_SEARCH_FAILED")
+assert(interruptions == 1, "an asynchronous failure makes the first search eligible on reopen")
+assert(addon.Search(function() return true end, function() interruptions = interruptions + 1 end))
+advance(6)
+assert(interruptions == 2, "a timed-out first search is eligible on reopen")
+advance(1)
+before = #requests
+assert(addon.Search(function() return true end, function() interruptions = interruptions + 1 end))
+receive()
+advance(1)
+assert(#requests == before + 2)
+fire("LFG_LIST_SEARCH_FAILED")
+assert(interruptions == 3, "failure of the single opening retry also restores opening eligibility")
+assert(addon.Search(function() return true end, function() interruptions = interruptions + 1 end))
+addon.SelectionChanged()
+fire("LFG_LIST_SEARCH_FAILED")
+assert(interruptions == 3, "an explicitly changed selection does not become an automatic opening retry")
+
 combat = true
 before = #requests
 assert(not addon.Search() and #requests == before)

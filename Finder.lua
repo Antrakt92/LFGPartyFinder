@@ -312,6 +312,7 @@ function addon.Search(canRetry, onInterrupted)
             pending = nil
             BeginSearchDrain(1)
             addon.status = request.discard and "Selection changed. Click Search." or "No response. Click Search to try again."
+            if not request.discard and request.onInterrupted then request.onInterrupted() end
             changed()
         end)
     end
@@ -1013,9 +1014,11 @@ events:SetScript("OnEvent", function(_, event, ...)
     elseif event == "LFG_LIST_SEARCH_FAILED" then
         if ConsumeUnownedSearchCompletion() then return end
         if pending then
-            pending.failed = true
-            addon.status = pending.discard and "Selection changed. Click Search." or "Search failed. Try again."
+            local request = pending
+            request.failed = true
+            addon.status = request.discard and "Selection changed. Click Search." or "Search failed. Try again."
             pending = nil
+            if not request.discard and request.onInterrupted then request.onInterrupted() end
             changed()
             DispatchQueuedSearch()
         end
