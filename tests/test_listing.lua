@@ -331,7 +331,9 @@ local nativeView = {
 LFGListingFrame = {
     IsVisible = function() return true end,
     LoadSoloRoles = function() end,
-    UpdatePostButtonEnableState = function() end,
+    UpdatePostButtonEnableState = function(self)
+        if self.PostButton then self.PostButton:SetEnabled(self.dirty == true and (active or self:IsAnyActivitySelected())) end
+    end,
     selectedActivities = 0,
     IsAnyActivitySelected = function() return #nativeActivities > 0 end,
     IsActivitySelected = function(_, id)
@@ -389,6 +391,7 @@ local nativePost = function()
 end
 actualPost:SetScript("OnClick", nativePost)
 local function clickNativePost()
+    if actualPost.enabled == false then return end
     if actualPost.scripts.PreClick then actualPost.scripts.PreClick(actualPost) end
     actualPost.scripts.OnClick(actualPost)
 end
@@ -420,12 +423,42 @@ local settings = assert(find("Button", "Settings"))
 loader.scripts.OnEvent(loader, "ADDON_LOADED", "Blizzard_GroupFinder_VanillaStyle")
 LFGListingFrame:SetCategorySelection(9)
 LFGListingFrame:SetActivity(5, true)
+assert(actualPost.enabled)
+assert(addon.CreateListing())
+local pendingDirectTimer = deferred[#deferred]
+assert(not actualPost.enabled, "a direct listing wait disables the stock Post button")
+LFGListingFrame:UpdatePostButtonEnableState()
+assert(not actualPost.enabled, "stock enable refresh cannot permit a post during the direct wait")
+local nativeBeforePendingClick = nativePostClicks
+clickNativePost()
+assert(nativePostClicks == nativeBeforePendingClick, "a stock click cannot dispatch a second listing during a direct wait")
+LFGParentFrame.ListingTab.scripts.OnMouseUp(LFGParentFrame.ListingTab, "LeftButton", true)
+combat = true
+local setPostEnabled = actualPost.SetEnabled
+actualPost.SetEnabled = function() error("the addon must defer native button changes during combat") end
+loader.scripts.OnEvent(loader, "PLAYER_REGEN_DISABLED")
+assert(not actualPost.enabled, "closing the addon and entering combat preserve the existing disabled state")
+LFGListingFrame:SetDirty(false)
+pendingDirectTimer()
+assert(not actualPost.enabled, "timeout defers native button restoration until combat ends")
+actualPost.SetEnabled = setPostEnabled
+combat = false
+loader.scripts.OnEvent(loader, "PLAYER_REGEN_ENABLED")
+assert(not actualPost.enabled, "combat recovery restores stock dirty-state rules instead of enabling blindly")
+SlashCmdList.PARTYFINDERFOREVER("")
+LFGListingFrame:SetDirty(true)
+LFGListingFrame:UpdatePostButtonEnableState()
+assert(actualPost.enabled)
 nativeComment = "Already submitted from the Blizzard form"
 cleared = false
 local stockClicks, directPublications = nativePostClicks, #publications
 clickNativePost()
 assert(nativePostClicks == stockClicks + 1 and not submit.enabled,
     "a stock post before ever opening the addon editor starts the shared wait")
+assert(not actualPost.enabled, "a stock post also disables repeated native posts while waiting")
+LFGListingFrame:UpdatePostButtonEnableState()
+clickNativePost()
+assert(nativePostClicks == stockClicks + 1, "repeated native posting stays blocked across stock refreshes")
 assert(not addon.CreateListing() and not cleared and #publications == directPublications
     and nativeComment == "Already submitted from the Blizzard form",
     "quick listing cannot resubmit or erase the stock comment in flight")
@@ -433,6 +466,7 @@ active = true
 finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
 local _, stockActive, stockWaiting = addon.ListingState()
 assert(stockActive and not stockWaiting, "a stock success releases the shared wait")
+assert(actualPost.enabled, "stock success restores the enabled state from native rules")
 LFGListingFrame:SetAllActivities(false)
 nativePostEffect = function()
     active = false
@@ -460,7 +494,7 @@ C_LFGListRoles.SetRoles({ tank = false, healer = true, dps = false }, false)
 
 settings.scripts.OnClick()
 assertInline()
-assert(not focused and not addon.db.listingComment and #publications == 2,
+assert(not focused and not addon.db.listingComment and #publications == directPublications,
     "the real field is present on first opening Settings without a saved draft")
 assert(nativeActivities[1] == 1 and nativeActivities[2] == 3)
 assert(sentRoles.tank and not sentRoles.healer and not sentRoles.dps)
@@ -605,7 +639,7 @@ find("Button", "Players").scripts.OnClick()
 nativeComment = "A stale native value"
 cleared = false
 submit.scripts.OnClick(submit)
-assert(cleared and nativeComment == "" and #publications == 3 and submit:IsVisible(),
+assert(cleared and nativeComment == "" and #publications == directPublications + 1 and submit:IsVisible(),
     "List Me publishes without comments even with a saved draft and text in the native field")
 assert(addon.db.listingComment == savedDraft)
 active = true

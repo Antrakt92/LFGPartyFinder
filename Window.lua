@@ -5,6 +5,7 @@ local currentView, roleFilters, viewRevision = "players", {}, 0
 local groupRoleFilters, roomForMe = {}, false
 local window, nativeLauncher
 local commentEdit, commentPost, commentListing, nativeDraft, inlineComposer
+local pendingPostButton
 local deferredNativeDraft, deferredComposer
 local OpenListingDetails, RefreshCommentEditor
 local openingNativeFromAddon
@@ -486,7 +487,24 @@ local function RenderResults()
     parts.resetFilters:SetShown(canResetFilters)
 end
 
+local function RefreshNativePostPending()
+    local listing = LFGListingFrame
+    local post = listing and listing.PostButton
+    if not post or post ~= commentPost then return end
+    if InCombatLockdown() then return end
+    local _, _, waiting = addon.ListingState()
+    if waiting then
+        pendingPostButton = post
+        post:SetEnabled(false)
+    elseif pendingPostButton == post then
+        pendingPostButton = nil
+        -- Recompute native permissions, comment validity and dirty state.
+        listing:UpdatePostButtonEnableState()
+    end
+end
+
 function addon.Refresh()
+    RefreshNativePostPending()
     if not window or not window:IsVisible() then return end
     parts.results:SetShown(currentView == "players" or currentView == "groups")
     parts.status:SetShown(parts.results:IsShown())
@@ -834,6 +852,8 @@ local function TrackNativeListingPost(listing)
     local post = listing and listing.PostButton
     if not post or commentPost == post then return end
     commentPost = post
+    hooksecurefunc(listing, "UpdatePostButtonEnableState", RefreshNativePostPending)
+    RefreshNativePostPending()
     local hasPreClick = read(post:HasScript("PreClick"), "boolean") == true
     local failureRevision
     if hasPreClick then
