@@ -18,20 +18,27 @@ def main():
     parser.add_argument("--out", type=Path, default=ROOT / "dist")
     args = parser.parse_args()
 
-    toc = (ROOT / TOC).read_text(encoding="utf-8")
-    version = re.search(r"^## Version: (\d+\.\d+\.\d+)$", toc, re.MULTILINE)
-    if not version or "## Interface: 16001" not in toc.splitlines():
-        parser.error("TOC must declare the release version and Forever interface")
-    entries = (line.strip() for line in toc.splitlines())
+    toc_lines = (ROOT / TOC).read_text(encoding="utf-8").splitlines()
+    versions = []
+    interfaces = []
+    for line in toc_lines:
+        header = re.fullmatch(r"\s*##\s*(Version|Interface)\s*:\s*(.*?)\s*", line, re.IGNORECASE | re.ASCII)
+        if header:
+            values = versions if header[1].lower() == "version" else interfaces
+            values.append(header[2])
+    if interfaces != ["16001"] or len(versions) != 1 or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", versions[0]):
+        parser.error("TOC must declare exactly one release version and Forever interface")
+    version = versions[0]
+    entries = (line.strip() for line in toc_lines)
     if tuple(entry for entry in entries if entry and not entry.startswith("#")) != RUNTIME:
         parser.error("TOC file inventory or load order does not match the package")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     heading = next((line for line in changelog.splitlines() if line.startswith("## ")), "")
-    if not heading.startswith(f"## {version[1]} - "):
+    if not heading.startswith(f"## {version} - "):
         parser.error("latest changelog version must match the TOC")
 
     args.out.mkdir(parents=True, exist_ok=True)
-    archive = args.out / f"LFGPartyFinder-{version[1]}.zip"
+    archive = args.out / f"LFGPartyFinder-{version}.zip"
     payload = {f"{ADDON}/{name}": (ROOT / name).read_bytes() for name in FILES}
     output = BytesIO()
     with ZipFile(output, "w") as zipped:

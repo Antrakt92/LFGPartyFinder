@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageTests(unittest.TestCase):
-    def test_rejects_unpackaged_toc_entry(self):
+    def assert_rejects_toc(self, extra, message):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory)
             (source / "scripts").mkdir()
@@ -19,11 +19,19 @@ class PackageTests(unittest.TestCase):
                          "CHANGELOG.md", "scripts/package.py"):
                 shutil.copyfile(ROOT / name, source / name)
             with (source / "PartyFinderForever.toc").open("a", encoding="utf-8") as toc:
-                toc.write("\nExtra.xml\n")
+                toc.write(extra)
             result = subprocess.run([sys.executable, str(source / "scripts/package.py")], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("TOC file inventory", result.stderr)
+            self.assertIn(message, result.stderr)
             self.assertFalse(list(source.glob("dist/*.zip")))
+
+    def test_rejects_unpackaged_toc_entry(self):
+        self.assert_rejects_toc("\nExtra.xml\n", "TOC file inventory")
+
+    def test_rejects_conflicting_toc_metadata(self):
+        for extra in ("## Version: invalid", "## Version: 9.9.9", "## Interface: 99999"):
+            with self.subTest(extra=extra):
+                self.assert_rejects_toc(f"\n{extra}\n", "TOC must declare")
 
     def test_preserves_existing_versioned_archive(self):
         toc = (ROOT / "PartyFinderForever.toc").read_text(encoding="utf-8")
