@@ -1,10 +1,12 @@
 import re
+import runpy
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +52,37 @@ class PackageTests(unittest.TestCase):
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(archive.read_bytes(), existing_archive)
+
+    def test_failed_write_does_not_block_retry(self):
+        script = ROOT / "scripts/package.py"
+        original_open = Path.open
+
+        class FailingDestination:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def __enter__(self):
+                self.stream.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.stream.__exit__(*args)
+
+            def write(self, data):
+                self.stream.write(data[:64])
+                raise OSError("simulated write failure")
+
+        def fail_archive_write(path, mode="r", *args, **kwargs):
+            stream = original_open(path, mode, *args, **kwargs)
+            return FailingDestination(stream) if mode == "xb" else stream
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(sys, "argv", [str(script), "--out", directory]), patch.object(Path, "open", fail_archive_write):
+                with self.assertRaisesRegex(OSError, "simulated write failure"):
+                    runpy.run_path(str(script), run_name="__main__")
+            self.assertFalse(list(Path(directory).glob("*.zip")))
+            subprocess.run([sys.executable, str(script), "--out", directory], check=True, capture_output=True)
+            self.assertEqual(len(list(Path(directory).glob("*.zip"))), 1)
 
 
 if __name__ == "__main__":

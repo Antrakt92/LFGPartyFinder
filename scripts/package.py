@@ -49,11 +49,17 @@ def main():
             raise RuntimeError("archive does not match the source inventory")
     contents = output.getvalue()
     try:
-        with archive.open("xb") as destination:
-            destination.write(contents)
+        destination = archive.open("xb")
     except FileExistsError:
         if archive.read_bytes() != contents:
             parser.error(f"{archive} already exists with different contents. Use a separate --out directory.")
+    else:
+        try:
+            with destination:
+                destination.write(contents)
+        except (OSError, KeyboardInterrupt):
+            archive.unlink(missing_ok=True)
+            raise
     print(archive)
 
 
