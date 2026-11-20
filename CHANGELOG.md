@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3 - 20-Nov-2026 — Packaging maintenance
+
+- Fixed an issue where an interrupted ZIP write could block the next build. In-game behavior remains the same as in 1.2.2.
+
 ## 1.2.2 - 19-Nov-2026 — Listing and search recovery
 
 - Keep Blizzard's Post button disabled while a listing request is pending. Restore its normal availability when the request settles and combat restrictions permit it.
