@@ -950,7 +950,16 @@ function addon.Act(entry)
             class = read(UnitClass("player"), "string") or "" })
         nextAction = now + 2
         if text == "" then
-            if not pcall(C_PartyInfo.RequestInviteFromUnit, target) then
+            local grouped, active = addon.ListingState()
+            local roles
+            if grouped == false and active == true then
+                roles = addon.NativeListingRoles()
+            else
+                roles = addon.ListingRoles()
+            end
+            if roles and not (roles.tank or roles.healer or roles.dps) then roles = nil end
+            if not pcall(C_PartyInfo.RequestInviteFromUnit, target,
+                roles and roles.tank, roles and roles.healer, roles and roles.dps) then
                 return false, "WoW could not request an invite to the group."
             end
             return

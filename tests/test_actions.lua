@@ -22,9 +22,9 @@ C_PartyInfo = {
         calls[#calls + 1] = { "invite", target }
         if confirmInvite then events.scripts.OnEvent(events, "INVITE_TO_PARTY_CONFIRMATION", target .. "-Realm") end
     end,
-    RequestInviteFromUnit = function(target)
+    RequestInviteFromUnit = function(target, tank, healer, dps)
         if requestThrows then error("protected request failed") end
-        calls[#calls + 1] = { "request", target }
+        calls[#calls + 1] = { "request", target, tank = tank, healer = healer, dps = dps }
     end,
 }
 C_ChatInfo = {
@@ -92,14 +92,46 @@ addon.OpenWhisper(group)
 assertAction("open", "Group leader")
 now = 11
 addon.db.askText = " "
+addon.db.listingRoles = { tank = false, healer = true, dps = true }
 addon.Act(group)
+assert(calls[1].tank == false and calls[1].healer == true and calls[1].dps == true,
+    "a blank ask template conveys the selected multi-role preferences to the native request")
 assertAction("request", "Group leader")
 addon.Act(group)
 assert(#calls == 0, "an empty join template requests entry without a whisper and uses the action cooldown")
-now, requestThrows = 13, true
+local isInGroup = IsInGroup
+function IsInGroup() return false end
+C_LFGList.HasActiveEntryInfo = function() return true end
+C_LFGListRoles = { GetRoles = function() return { tank = true, healer = false, dps = false } end }
+now = 13
+addon.Act(group)
+assert(calls[1].tank == true and calls[1].healer == false and calls[1].dps == false,
+    "an active solo listing uses its actual roles just like the visible role controls")
+assertAction("request", "Group leader")
+C_LFGListRoles.GetRoles = function() return nil end
+now = 15
+addon.Act(group)
+assert(calls[1].tank == nil and calls[1].healer == nil and calls[1].dps == nil,
+    "unreadable active roles stay unspecified instead of using a conflicting saved preference")
+assertAction("request", "Group leader")
+function IsInGroup() return true end
+now = 17
+addon.Act(group)
+assert(calls[1].tank == false and calls[1].healer == true and calls[1].dps == true,
+    "party requests use the editable role preferences")
+assertAction("request", "Group leader")
+IsInGroup = isInGroup
+C_LFGList.HasActiveEntryInfo = function() return false end
+addon.db.listingRoles = { tank = false, healer = false, dps = false }
+now = 19
+addon.Act(group)
+assert(calls[1].tank == nil and calls[1].healer == nil and calls[1].dps == nil,
+    "all roles unchecked retains a role-agnostic native request")
+assertAction("request", "Group leader")
+now, requestThrows = 21, true
 local ok, requestError = addon.Act(group)
 assert(ok == false and requestError and #calls == 0, "a native request error is reported without sending a whisper")
-now = 15
+now = 23
 results[1].activityIDs = { 2 }
 addon.Act(solo)
 addon.OpenWhisper(solo)
