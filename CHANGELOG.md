@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.4 - 22-Nov-2026 — Join roles and search recovery
+
+- Join requests sent with a blank whisper template now include your selected roles. Clear all role selections to request an invite without specifying a role.
+- Search results return automatically when WoW lifts its chat restriction. Reported listings stay hidden.
+- The ZIP builder rejects release versions with leading zeros.
+
 ## 1.2.3 - 20-Nov-2026 — Packaging maintenance
 
 - Fixed an issue where an interrupted ZIP write could block the next build. In-game behavior remains the same as in 1.2.2.
