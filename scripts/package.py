@@ -26,7 +26,11 @@ def main():
         if header:
             values = versions if header[1].lower() == "version" else interfaces
             values.append(header[2])
-    if interfaces != ["16001"] or len(versions) != 1 or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", versions[0]):
+    if (
+        interfaces != ["16001"]
+        or len(versions) != 1
+        or not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)){2}", versions[0])
+    ):
         parser.error("TOC must declare exactly one release version and Forever interface")
     version = versions[0]
     entries = (line.strip() for line in toc_lines)
