@@ -438,6 +438,51 @@ fire("LFG_LIST_SEARCH_RESULT_UPDATED", reportedGroup.id)
 advance(0.2)
 assert(#addon.groups == #groupsAfterReport, "later per-result updates cannot restore a reported listing")
 
+Enum.AddOnRestrictionType = { Chat = 5, Combat = 0 }
+Enum.AddOnRestrictionState = { Inactive = 0, Active = 2 }
+local readableResultInfo = C_LFGList.GetSearchResultInfo
+local accessibleValue = canaccessvalue
+local restrictedResult = {}
+canaccessvalue = function(value) return value ~= restrictedResult end
+C_LFGList.GetSearchResultInfo = function() return restrictedResult end
+fire("LFG_LIST_SEARCH_RESULT_UPDATED", 101)
+advance(0.2)
+assert(#addon.groups == 0, "restricted result data cannot be decoded or used for actions")
+visibleIDs = { 101, 105, 106, 107 }
+fire("REPORT_PLAYER_RESULT", Enum.SendReportResult.Success, Enum.ReportType.GroupFinderPosting)
+groupsAfterReport = { 101, 105, 106 }
+C_LFGList.GetSearchResultInfo = readableResultInfo
+canaccessvalue = accessibleValue
+before = #requests
+fire("ADDON_RESTRICTION_STATE_CHANGED", Enum.AddOnRestrictionType.Combat, Enum.AddOnRestrictionState.Inactive)
+fire("ADDON_RESTRICTION_STATE_CHANGED", Enum.AddOnRestrictionType.Chat, Enum.AddOnRestrictionState.Active)
+assert(#addon.groups == 0)
+combat = true
+assert(not addon.Search())
+combat = false
+local retainedStatus = addon.status
+fire("ADDON_RESTRICTION_STATE_CHANGED", Enum.AddOnRestrictionType.Chat, Enum.AddOnRestrictionState.Inactive)
+assert(#requests == before and #addon.groups == #groupsAfterReport and addon.status == retainedStatus,
+    "chat restriction recovery restores owned clean rows without another search")
+for index, group in ipairs(addon.groups) do
+    assert(group.id == groupsAfterReport[index], "restriction recovery cannot resurrect reported or unowned listings")
+end
+assert(addon.Search())
+before = #requests
+fire("ADDON_RESTRICTION_STATE_CHANGED", Enum.AddOnRestrictionType.Chat, Enum.AddOnRestrictionState.Inactive)
+assert(#addon.groups == 0 and addon.status == "Searching…" and #requests == before,
+    "restriction recovery cannot complete a pending search")
+receive(101, 104, 105, 106)
+C_LFGList.Search(2, 0, 0, nil, false, nil, {10})
+local retainedGroups = addon.groups
+before = #requests
+fire("ADDON_RESTRICTION_STATE_CHANGED", Enum.AddOnRestrictionType.Chat, Enum.AddOnRestrictionState.Inactive)
+assert(addon.groups == retainedGroups and #requests == before,
+    "restriction recovery does not adopt a native search or repaint retired result IDs")
+for _, group in ipairs(addon.groups) do assert(not group.target) end
+receive(101)
+advance(1)
+
 addon.db.activities = {}
 addon.db.manualDungeonSelection = false
 addon.db.showAllLevels = true

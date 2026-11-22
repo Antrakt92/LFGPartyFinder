@@ -987,12 +987,22 @@ events:RegisterEvent("PLAYER_LEVEL_UP")
 events:RegisterEvent("GROUP_ROSTER_UPDATE")
 events:RegisterEvent("PARTY_LEADER_CHANGED")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
+events:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
 local repaintPending
 events:SetScript("OnEvent", function(_, event, ...)
     if event == "INVITE_TO_PARTY_CONFIRMATION" or event == "INVITE_TRAVEL_PASS_CONFIRMATION" then
         if inviteAttempt then inviteAttempt.needsConfirmation = true end
     elseif event == "PLAYER_REGEN_ENABLED" then
         DispatchQueuedSearch()
+    elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
+        local restriction, state = ...
+        if read(restriction, "number") == Enum.AddOnRestrictionType.Chat
+            and read(state, "number") == Enum.AddOnRestrictionState.Inactive then
+            if not pending and not openingRetry and activeResults.ids then
+                addon.players, addon.groups = CollectResults(activeQuery, activeResults)
+            end
+            changed()
+        end
     elseif event == "LFG_LIST_ROLE_UPDATE" then
         listingRoleRevision = listingRoleRevision + 1
         changed()
