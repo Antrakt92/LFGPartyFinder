@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
       - name: Install Lua 5.1
         run: |
           sudo apt-get update
@@ -23,4 +25,8 @@ jobs:
       - name: Verify package
         run: |
           python3 tests/test_package.py
-          python3 scripts/package.py
+          previous_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^)
+          previous_changelog=$(mktemp)
+          trap 'rm -f "$previous_changelog"' EXIT
+          git show "${previous_tag}:CHANGELOG.md" > "$previous_changelog"
+          python3 scripts/package.py --previous-changelog "$previous_changelog"

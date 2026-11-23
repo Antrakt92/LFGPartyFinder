@@ -20,8 +20,8 @@ class PackageTests(unittest.TestCase):
             for name in ("PartyFinderForever.toc", "Data.lua", "Finder.lua", "Window.lua", "LICENSE",
                          "CHANGELOG.md", "scripts/package.py"):
                 shutil.copyfile(ROOT / name, source / name)
-            change(source)
-            result = subprocess.run([sys.executable, str(source / "scripts/package.py")], capture_output=True, text=True)
+            args = change(source) or []
+            result = subprocess.run([sys.executable, str(source / "scripts/package.py"), *args], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(message, result.stderr)
             self.assertFalse(list(source.glob("dist/*.zip")))
@@ -52,6 +52,17 @@ class PackageTests(unittest.TestCase):
             changelog.write_text(contents.replace(f"## {version} - ", f"## 0{version} - ", 1), encoding="utf-8")
 
         self.assert_rejects_package(set_version, "TOC must declare")
+
+    def test_rejects_truncated_release_history(self):
+        def truncate_history(source):
+            changelog = source / "CHANGELOG.md"
+            sections = re.split(r"(?m)(?=^## )", changelog.read_text(encoding="utf-8"))
+            previous = source / "previous.md"
+            previous.write_text(sections[0] + "".join(sections[2:]), encoding="utf-8")
+            changelog.write_text("".join(sections[:-1]), encoding="utf-8")
+            return ["--previous-changelog", str(previous)]
+
+        self.assert_rejects_package(truncate_history, "must retain the previous release history")
 
     def test_preserves_existing_versioned_archive(self):
         toc = (ROOT / "PartyFinderForever.toc").read_text(encoding="utf-8")

@@ -16,6 +16,7 @@ FILES = (TOC, *RUNTIME, "CHANGELOG.md", "LICENSE")
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=ROOT / "dist")
+    parser.add_argument("--previous-changelog", type=Path, help="changelog from the previous release tag")
     args = parser.parse_args()
 
     toc_lines = (ROOT / TOC).read_text(encoding="utf-8").splitlines()
@@ -40,6 +41,11 @@ def main():
     heading = next((line for line in changelog.splitlines() if line.startswith("## ")), "")
     if not heading.startswith(f"## {version} - "):
         parser.error("latest changelog version must match the TOC")
+    if args.previous_changelog:
+        previous = args.previous_changelog.read_text(encoding="utf-8")
+        first_release = re.search(r"^## ", previous, re.MULTILINE)
+        if not first_release or not changelog.rstrip().endswith(previous[first_release.start():].rstrip()):
+            parser.error("changelog must retain the previous release history")
 
     args.out.mkdir(parents=True, exist_ok=True)
     archive = args.out / f"LFGPartyFinder-{version}.zip"
