@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.5 - 23-Nov-2026 — Unlist and dungeon search fixes
+
+- Prevent duplicate unlist requests while WoW is processing a removal from the built-in Group Finder.
+- Keep search results when dungeon availability is temporarily unreadable. Actions resume once the selection can be verified.
+- Check that release ZIPs retain the full changelog.
+
 ## 1.2.4 - 22-Nov-2026 — Join roles and search recovery
 
 - Join requests sent with a blank whisper template now include your selected roles. Clear all role selections to request an invite without specifying a role.
