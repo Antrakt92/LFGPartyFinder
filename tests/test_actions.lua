@@ -5,18 +5,22 @@ local addon, _, _, events, search = assert(loadfile(fixturePath))(arg[1] or ".")
 local now, partyCount = 1, 0
 local canInvite, lockdown, confirmInvite, inviteThrows, combat = true, false, false, false, false
 local requestThrows = false
+local grouped, leader, assistant, partyFull = false, false, false, false
 local calls = {}
 function GetTime() return now end
 function InCombatLockdown() return combat end
 function UnitFactionGroup() return "Horde" end
 function GetNumGroupMembers() return partyCount end
+function IsInGroup() return grouped end
+function UnitIsGroupLeader() return leader end
+function UnitIsGroupAssistant() return assistant end
 function IsInRaid() return false end
 function UnitClass() return "Mage", "MAGE" end
 function UnitGroupRolesAssigned() return "NONE" end
 ChatFrameUtil = { SendTell = function(target) calls[#calls + 1] = { "open", target } end }
 C_PartyInfo = {
     CanInvite = function() return canInvite end,
-    IsPartyFull = function() return false end,
+    IsPartyFull = function() return partyFull end,
     InviteUnit = function(target)
         if inviteThrows then error("protected invite failed") end
         calls[#calls + 1] = { "invite", target }
@@ -139,6 +143,29 @@ assert(#calls == 0, "a stale card cannot act for an activity that left the listi
 results[1].activityIDs, results[1].partyGUID = { 1 }, "new-solo"
 addon.Act(solo)
 assert(#calls == 0, "a stale card cannot act on a replacement listing from the same leader")
+
+results[1].partyGUID = "old-solo"
+grouped, partyCount, canInvite = true, 3, false
+addon.Act(solo)
+assertAction("invite", "Solo")
+assert(#calls == 0, "a suggestion uses the native invite API without whispering to the candidate")
+addon.Act(solo)
+assert(#calls == 0, "a suggestion shares the action cooldown")
+now, partyCount = 25, 5
+assert(addon.Act(solo) == false and #calls == 0, "a full dungeon party cannot suggest an invite")
+partyCount, partyFull = 3, true
+assert(addon.Act(solo) == false and #calls == 0, "native party capacity also applies to suggestions")
+partyFull, inviteThrows = false, true
+local suggested, suggestionError = addon.Act(solo)
+assert(suggested == false and suggestionError:find("suggest", 1, true) and #calls == 0)
+now, inviteThrows, leader, canInvite = 27, false, true, true
+addon.Act(solo)
+assertAction("invite", "Solo")
+assertAction("send", "Solo", "Invited you")
+now, leader, assistant = 29, false, true
+addon.Act(solo)
+assertAction("invite", "Solo")
+assertAction("send", "Solo", "Invited you")
 
 local prefix = string.rep("a", 254)
 assert(addon.RenderTemplate(prefix .. "€", {}) == prefix, "cuts at the 255-byte limit without breaking UTF-8")

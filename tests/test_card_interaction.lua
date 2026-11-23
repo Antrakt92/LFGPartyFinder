@@ -12,14 +12,14 @@ local function show(entry)
     addon.Refresh()
 end
 
-local actedOn, whisperedTo, tooltipOwner, tooltipTitle
+local actedOn, whisperedTo, tooltipOwner, tooltipTitle, tooltipLastLine
 addon.Act = function(entry) actedOn = entry end
 addon.OpenWhisper = function(entry) whisperedTo = entry end
 GameTooltip = {
     GetOwner = function() return tooltipOwner end,
     SetOwner = function(_, owner) tooltipOwner = owner end,
     SetText = function(_, title) tooltipTitle = title end,
-    AddLine = function() end,
+    AddLine = function(_, line) tooltipLastLine = line end,
     Show = function() end,
 }
 function GameTooltip_Hide() tooltipOwner = nil end
@@ -41,7 +41,7 @@ for _, frame in ipairs(frames) do
 end
 local action = assert(card).action
 action.scripts.OnEnter(action)
-assert(tooltipTitle == "Alice")
+assert(tooltipTitle == "Alice" and tooltipLastLine == "Invite to Party")
 action.scripts.OnMouseDown(action, "LeftButton")
 show(bob)
 assert(card.entry == bob and tooltipTitle == "Bob", "reused hovered card refreshes its tooltip")
@@ -88,4 +88,15 @@ show(nil)
 assert(not action:IsVisible())
 action.scripts.OnClick(action, "LeftButton")
 assert(actedOn == refreshedBob, "a hidden row cannot trigger a pending action")
+
+function IsInGroup() return true end
+function UnitIsGroupLeader() return false end
+function UnitIsGroupAssistant() return false end
+show(alice)
+action.scripts.OnEnter(action)
+assert(tooltipLastLine == "Suggest Invite")
+card.scripts.OnMouseDown(card, "RightButton")
+card.scripts.OnMouseUp(card, "RightButton", true)
+contextActions["Suggest Invite"]()
+assert(actedOn == alice, "the suggestion menu uses the same listing action as the plus button")
 print("Passed card hover identity, press/repaint, context actions, and hidden rows")

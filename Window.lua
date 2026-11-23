@@ -100,6 +100,12 @@ local function ActOnCard(entry)
     if ok == false and reason then UIErrorsFrame:AddMessage(reason, 1, 0.32, 0.24) end
 end
 
+local function CardActionLabel(entry)
+    if entry.count ~= 1 then return "Ask to Join" end
+    if addon.ShouldSuggestInvite() then return SUGGEST_INVITE or "Suggest Invite" end
+    return "Invite to Party"
+end
+
 local function OpenCardMenu(card, entry)
     if not entry or entry.own or not entry.target then return end
     GameTooltip_Hide()
@@ -108,7 +114,7 @@ local function OpenCardMenu(card, entry)
         menu:CreateButton(SEND_MESSAGE or "Send Message", function()
             if card:IsVisible() and SameCardEntry(entry, card.entry) then addon.OpenWhisper(entry) end
         end)
-        menu:CreateButton(entry.count == 1 and "Invite to Party" or "Ask to Join", function()
+        menu:CreateButton(CardActionLabel(entry), function()
             if card:IsVisible() and SameCardEntry(entry, card.entry) then ActOnCard(entry) end
         end)
     end)
@@ -202,7 +208,7 @@ local function SetCardTooltip(control, card, action)
             AddTooltipLine("+" .. (entry.count - #entry.members) .. " more", detailColor)
         end
         if entry.comment then GameTooltip:AddLine("Comment: " .. entry.comment:gsub("|", "||"), 0.95, 0.95, 0.95, true) end
-        if action then AddTooltipLine(entry.count == 1 and "Invite to Party" or "Ask to Join", detailColor) end
+        if action then AddTooltipLine(CardActionLabel(entry), detailColor) end
         GameTooltip:Show()
     end
     local function hide(self)

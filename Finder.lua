@@ -952,6 +952,12 @@ function addon.OpenWhisper(entry)
     if target then ChatFrameUtil.SendTell(target) end
 end
 
+function addon.ShouldSuggestInvite()
+    return read(IsInGroup(LE_PARTY_CATEGORY_HOME), "boolean") == true
+        and read(UnitIsGroupLeader("player", LE_PARTY_CATEGORY_HOME), "boolean") == false
+        and read(UnitIsGroupAssistant("player"), "boolean") == false
+end
+
 function addon.Act(entry)
     local now = GetTime()
     if InCombatLockdown() or now < nextAction then return end
@@ -961,7 +967,10 @@ function addon.Act(entry)
     if entry.count == 1 then
         local count = read(GetNumGroupMembers(LE_PARTY_CATEGORY_HOME), "number")
         local capacity = entry.activity and entry.activity.capacity
-        if read(C_PartyInfo.CanInvite(), "boolean") ~= true then return false, "You cannot invite players right now." end
+        local suggest = addon.ShouldSuggestInvite()
+        if not suggest and read(C_PartyInfo.CanInvite(), "boolean") ~= true then
+            return false, "You cannot invite players right now."
+        end
         local full = read(C_PartyInfo.IsPartyFull(LE_PARTY_CATEGORY_HOME), "boolean")
         if count == nil or full == nil then return false, "Could not verify an open slot in your party." end
         if full or (capacity and capacity > 0 and count >= capacity) then
@@ -972,8 +981,10 @@ function addon.Act(entry)
         inviteAttempt = attempt
         local ok = pcall(C_PartyInfo.InviteUnit, target)
         inviteAttempt = nil
-        if not ok then return false, "WoW could not send the party invite." end
-        if not attempt.needsConfirmation and addon.db.inviteWhisper and entry.activity then
+        if not ok then
+            return false, suggest and "WoW could not suggest the invite to your leader." or "WoW could not send the party invite."
+        end
+        if not suggest and not attempt.needsConfirmation and addon.db.inviteWhisper and entry.activity then
             local party, needed = defaultRoster(capacity, count)
             local text = addon.RenderTemplate(addon.db.inviteText, { dungeon = entry.activity.name, party = party, needed = needed })
             if not whisper(target, text) then
