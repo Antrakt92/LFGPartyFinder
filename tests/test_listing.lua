@@ -334,6 +334,9 @@ LFGListingFrame = {
     UpdatePostButtonEnableState = function(self)
         if self.PostButton then self.PostButton:SetEnabled(self.dirty == true and (active or self:IsAnyActivitySelected())) end
     end,
+    UpdateBackButtonEnableState = function(self) self.BackButton:SetEnabled(self.activitiesView == true) end,
+    RemoveListing = function() C_LFGList.RemoveListing() end,
+    activitiesView = true,
     selectedActivities = 0,
     IsAnyActivitySelected = function() return #nativeActivities > 0 end,
     IsActivitySelected = function(_, id)
@@ -397,6 +400,15 @@ local function clickNativePost()
 end
 nativeView.Comment = actualComment
 LFGListingFrame.PostButton = actualPost
+local actualBack = CreateFrame("Button", nil, LFGParentFrame)
+LFGListingFrame.BackButton = actualBack
+local backNavigations = 0
+actualBack:SetScript("OnClick", function()
+    if active then LFGListingFrame:RemoveListing() else backNavigations = backNavigations + 1 end
+end)
+local function clickNativeBack()
+    if actualBack.enabled ~= false then actualBack.scripts.OnClick(actualBack) end
+end
 C_LFGList.ClearCreationTextFields = function()
     cleared = true
     nativeComment = ""
@@ -427,6 +439,8 @@ assert(actualPost.enabled)
 assert(addon.CreateListing())
 local pendingDirectTimer = deferred[#deferred]
 assert(not actualPost.enabled, "a direct listing wait disables the stock Post button")
+clickNativeBack()
+assert(backNavigations == 1, "the native Back button keeps navigation available while there is no active listing")
 LFGListingFrame:UpdatePostButtonEnableState()
 assert(not actualPost.enabled, "stock enable refresh cannot permit a post during the direct wait")
 local nativeBeforePendingClick = nativePostClicks
@@ -468,6 +482,29 @@ local _, stockActive, stockWaiting = addon.ListingState()
 assert(stockActive and not stockWaiting, "a stock success releases the shared wait")
 assert(actualPost.enabled, "stock success restores the enabled state from native rules")
 LFGListingFrame:SetAllActivities(false)
+nativePostEffect = function() C_LFGList.RemoveListing() end
+local removalsBeforeNative = removals
+clickNativePost()
+local _, _, nativeRemovalPending = addon.ListingState()
+assert(nativeRemovalPending and nativeRemovalPending.kind == "remove" and not submit.enabled and not actualPost.enabled,
+    "a delayed native removal reserves both listing controls")
+assert(not addon.RemoveListing() and removals == removalsBeforeNative + 1,
+    "addon Unlist cannot send another removal while the native removal is pending")
+local firstNativeRemovalTimer = deferred[#deferred]
+firstNativeRemovalTimer()
+assert(submit.enabled and actualPost.enabled, "an unanswered native removal can be retried after its bounded wait")
+clickNativePost()
+local secondNativeRemovalTimer = deferred[#deferred]
+firstNativeRemovalTimer()
+assert(select(3, addon.ListingState()), "an old native removal timeout cannot release the new request")
+active = false
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+secondNativeRemovalTimer()
+assert(not select(3, addon.ListingState()) and submit.enabled,
+    "native removal confirmation settles the wait without leaving the addon controls disabled")
+active = true
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+LFGListingFrame:UpdatePostButtonEnableState()
 nativePostEffect = function()
     active = false
     finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
@@ -476,6 +513,38 @@ clickNativePost()
 nativePostEffect = nil
 assert(not select(3, addon.ListingState()) and submit.enabled,
     "a stock removal that finishes inside its click does not start a creation wait")
+active = true
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+LFGListingFrame:SetActivity(5, true)
+LFGListingFrame:SetDirty(false)
+LFGListingFrame:UpdateBackButtonEnableState()
+local removalsBeforeBack = removals
+clickNativeBack()
+local _, _, backRemovalPending = addon.ListingState()
+assert(backRemovalPending and backRemovalPending.kind == "remove" and not actualBack.enabled and not actualPost.enabled,
+    "the native Unlist button also reserves a shared removal wait")
+LFGListingFrame:UpdateBackButtonEnableState()
+clickNativeBack()
+assert(not addon.RemoveListing() and removals == removalsBeforeBack + 1,
+    "native Unlist refreshes and repeated clicks cannot overlap its pending removal")
+local backRemovalTimer = deferred[#deferred]
+LFGListingFrame.activitiesView = false
+backRemovalTimer()
+assert(not actualBack.enabled and submit.enabled, "native Unlist restores its own view-state rule after an unanswered removal")
+LFGListingFrame.activitiesView = true
+LFGListingFrame:UpdateBackButtonEnableState()
+clickNativeBack()
+combat = true
+local setBackEnabled = actualBack.SetEnabled
+actualBack.SetEnabled = function() error("native Back state must be restored after combat") end
+active = false
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+assert(not actualBack.enabled and not select(3, addon.ListingState()), "native Unlist restoration defers during combat")
+actualBack.SetEnabled = setBackEnabled
+combat = false
+loader.scripts.OnEvent(loader, "PLAYER_REGEN_ENABLED")
+assert(actualBack.enabled and not select(3, addon.ListingState()), "confirmed Unlist restores normal Back navigation")
+LFGListingFrame:SetAllActivities(false)
 
 LFGListingFrame:SetCategorySelection(9)
 LFGListingFrame:SetActivity(5, true)

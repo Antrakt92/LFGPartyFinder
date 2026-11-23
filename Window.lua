@@ -5,7 +5,7 @@ local currentView, roleFilters, viewRevision = "players", {}, 0
 local groupRoleFilters, roomForMe = {}, false
 local window, nativeLauncher
 local commentEdit, commentPost, commentListing, nativeDraft, inlineComposer
-local pendingPostButton
+local pendingPostButton, pendingBackButton
 local deferredNativeDraft, deferredComposer
 local OpenListingDetails, RefreshCommentEditor
 local openingNativeFromAddon
@@ -492,7 +492,7 @@ local function RefreshNativePostPending()
     local post = listing and listing.PostButton
     if not post or post ~= commentPost then return end
     if InCombatLockdown() then return end
-    local _, _, waiting = addon.ListingState()
+    local _, active, waiting = addon.ListingState()
     if waiting then
         pendingPostButton = post
         post:SetEnabled(false)
@@ -500,6 +500,14 @@ local function RefreshNativePostPending()
         pendingPostButton = nil
         -- Recompute native permissions, comment validity and dirty state.
         listing:UpdatePostButtonEnableState()
+    end
+    local back = listing.BackButton
+    if waiting and active == true and back then
+        pendingBackButton = back
+        back:SetEnabled(false)
+    elseif back and pendingBackButton == back then
+        pendingBackButton = nil
+        listing:UpdateBackButtonEnableState()
     end
 end
 
@@ -853,27 +861,38 @@ local function TrackNativeListingPost(listing)
     if not post or commentPost == post then return end
     commentPost = post
     hooksecurefunc(listing, "UpdatePostButtonEnableState", RefreshNativePostPending)
+    if listing.BackButton and listing.RemoveListing then
+        hooksecurefunc(listing, "UpdateBackButtonEnableState", RefreshNativePostPending)
+        hooksecurefunc(listing, "RemoveListing", function()
+            addon.ObserveNativeListingPost(nil, "remove")
+        end)
+    end
     RefreshNativePostPending()
     local hasPreClick = read(post:HasScript("PreClick"), "boolean") == true
-    local failureRevision
+    local failureRevision, submissionKind
     if hasPreClick then
         post:HookScript("PreClick", function()
             local _, active = addon.ListingState()
-            failureRevision = nil
-            if active == false and listing.dirty and listing:IsAnyActivitySelected() then
-                failureRevision = addon.ListingFailureRevision()
+            failureRevision, submissionKind = nil, nil
+            if listing.dirty then
+                local selected = listing:IsAnyActivitySelected()
+                if active == false and selected then
+                    failureRevision, submissionKind = addon.ListingFailureRevision(), "create"
+                elseif active == true and not selected then
+                    submissionKind = "remove"
+                end
             end
         end)
     end
     post:HookScript("OnClick", function()
-        local revision = failureRevision
-        failureRevision = nil
+        local revision, kind = failureRevision, submissionKind
+        failureRevision, submissionKind = nil, nil
         local current = nativeDraft
         if current and current.listing ~= listing then current = nil end
-        if revision == nil and (hasPreClick or not current) then return end
+        if kind == nil and (hasPreClick or not current) then return end
         local attempted = current and current.postAttempted
         if current then current.postAttempted = true end
-        local ok, reason = addon.ObserveNativeListingPost(revision)
+        local ok, reason = addon.ObserveNativeListingPost(revision, kind)
         if not ok and current then
             current.postAttempted = attempted
             ListingError(reason)

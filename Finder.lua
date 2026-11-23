@@ -747,15 +747,17 @@ function addon.ListingFailureRevision()
     return listingFailureRevision
 end
 
-function addon.ObserveNativeListingPost(previousFailureRevision)
-    if previousFailureRevision and previousFailureRevision ~= listingFailureRevision then
+function addon.ObserveNativeListingPost(previousFailureRevision, kind)
+    kind = kind or "create"
+    if kind == "create" and previousFailureRevision and previousFailureRevision ~= listingFailureRevision then
         return false, listingRefusedMessage
     end
     local _, active, waiting = addon.ListingState()
-    if active == true or waiting then return true end
+    local desiredActive = kind == "create"
+    if active == desiredActive or waiting then return true end
     -- The stock Post handler just ran. Share its wait with direct addon listing
     -- actions so another click cannot clear the text before the outcome.
-    local request = { kind = "create", active = true }
+    local request = { kind = kind, active = desiredActive }
     listingPending = request
     ScheduleListingTimeout(request)
     changed()
