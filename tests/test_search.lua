@@ -502,4 +502,59 @@ assert(addon.Search() and requests[#requests].ids[1] == 20)
 receive(4)
 assert(addon.players[1].id == 4)
 
+level = 32
+addon.db.showAllLevels = false
+local activeActivityIDs = { 20 }
+C_LFGList.GetActiveEntryInfo = function() return { activityIDs = activeActivityIDs } end
+selectDungeons(20)
+assert(addon.Search())
+receive(4)
+assert(addon.players[1].id == 4 and addon.players[1].target)
+local staleEntry = {}
+for key, value in pairs(addon.players[1]) do staleEntry[key] = value end
+local restrictedActivity = {}
+canaccessvalue = function(value) return value ~= restrictedActivity end
+local whispered = false
+ChatFrameUtil.SendTell = function() whispered = true end
+before = #requests
+C_LFGList.GetActiveEntryInfo = function() return restrictedActivity end
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(addon.players[1].id == 4 and not addon.players[1].target,
+    "an unreadable active listing cannot prove an off-level dungeon was deselected")
+addon.OpenWhisper(staleEntry)
+assert(not whispered, "an older actionable card stays blocked while its selection is unverified")
+C_LFGList.GetActiveEntryInfo = function() return { activityIDs = activeActivityIDs } end
+activeActivityIDs = { restrictedActivity }
+fire("ADDON_RESTRICTION_STATE_CHANGED", Enum.AddOnRestrictionType.Chat, Enum.AddOnRestrictionState.Inactive)
+fire("LFG_LIST_SEARCH_RESULT_UPDATED", 4)
+advance(0.2)
+assert(addon.players[1].id == 4 and not addon.players[1].target and #requests == before,
+    "partially readable active activity IDs preserve the query without reactivating targets")
+activeActivityIDs = { 20 }
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(addon.players[1].id == 4 and addon.players[1].target and #requests == before,
+    "a clean catalog restores owned targets without another search")
+local resultReads = 0
+C_LFGList.GetSearchResultInfo = function(id)
+    resultReads = resultReads + 1
+    return readableResultInfo(id)
+end
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(resultReads == 0, "ordinary availability updates do not decode every roster again")
+C_LFGList.GetSearchResultInfo = readableResultInfo
+local completeCatalog = C_LFGList.GetAvailableActivities
+C_LFGList.GetAvailableActivities = function() return { 10, restrictedActivity, 30 } end
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(addon.players[1].id == 4 and not addon.players[1].target,
+    "an unreadable catalog ID is not definitive removal of the selected dungeon")
+C_LFGList.GetAvailableActivities = completeCatalog
+fire("ADDON_RESTRICTION_STATE_CHANGED", Enum.AddOnRestrictionType.Chat, Enum.AddOnRestrictionState.Inactive)
+assert(addon.players[1].id == 4 and addon.players[1].target)
+activeActivityIDs = {}
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(#addon.players == 0 and addon.status == "Selection changed. Click Search.",
+    "a clean removal of the off-level activity invalidates owned results")
+addon.OpenWhisper(staleEntry)
+assert(not whispered)
+
 print("Passed search ownership, late results, queued changes, refresh isolation, DB normalization and retry bounds")

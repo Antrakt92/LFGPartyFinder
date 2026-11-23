@@ -2,7 +2,7 @@ local _, addon = ...
 local read = addon.Read
 local category = addon.dungeonCategory
 local activeQuery, activeResults, pending, nextAction = {}, {}, nil, 0
-local openingRetry, queuedSearch, foreignSearch, callingSearch, drainingSearch
+local openingRetry, queuedSearch, foreignSearch, callingSearch, drainingSearch, selectionUncertain
 local searchTimeout, searchDrainGrace = 6, 1
 local listingPending, uncertainCreate
 local listingRoleRevision, listingFailureRevision = 0, 0
@@ -68,19 +68,27 @@ function addon.Activities()
     local entries = {}
     local groups = {}
     local level = read(UnitLevel("player"), "number")
-    local activeEntry = not addon.db.showAllLevels and read(C_LFGList.GetActiveEntryInfo(), "table")
+    local rawActiveEntry = not addon.db.showAllLevels and C_LFGList.GetActiveEntryInfo()
+    local activeEntry = read(rawActiveEntry, "table")
+    local complete = level ~= nil and level > 0 and canaccessvalue(rawActiveEntry)
+    local activeIDs = activeEntry and read(activeEntry.activityIDs, "table")
+    if activeEntry and not activeIDs then complete = false end
     local listed = {}
-    for _, value in ipairs(activeEntry and read(activeEntry.activityIDs, "table") or {}) do
+    for _, value in ipairs(activeIDs or {}) do
         local id = read(value, "number")
-        if id then listed[id] = true end
+        if id then listed[id] = true else complete = false end
     end
-    for _, value in ipairs(read(C_LFGList.GetAvailableActivities(category), "table") or {}) do
+    local availableIDs = read(C_LFGList.GetAvailableActivities(category), "table")
+    if not availableIDs then complete = false end
+    for _, value in ipairs(availableIDs or {}) do
         local id = read(value, "number")
         local info = id and read(C_LFGList.GetActivityInfoTable(id), "table")
         local name = info and read(info.fullName, "string")
         if name then
-            local min = read(info.minLevelSuggestion, "number") or 0
-            local max = read(info.maxLevelSuggestion, "number") or 0
+            local min = read(info.minLevelSuggestion, "number")
+            local max = read(info.maxLevelSuggestion, "number")
+            if not min or not max then complete = false end
+            min, max = min or 0, max or 0
             local recommended = level and level > 0 and (min <= 0 or level >= min) and (max <= 0 or level <= max)
             if recommended or listed[id] or addon.db.showAllLevels then
                 local groupID = read(info.groupFinderActivityGroupID, "number") or 0
@@ -95,6 +103,8 @@ function addon.Activities()
                     min = min, max = max, order = read(info.orderIndex, "number") or 0, group = group,
                     recommended = recommended, capacity = read(info.maxNumPlayers, "number") }
             end
+        else
+            complete = false
         end
     end
     table.sort(entries, function(a, b)
@@ -114,7 +124,7 @@ function addon.Activities()
         if nameOrder ~= 0 then return nameOrder < 0 end
         return a.id < b.id
     end)
-    return entries
+    return entries, complete
 end
 
 local function ComesBeforeOriginalDefault(a, b)
@@ -208,6 +218,7 @@ local function changed()
 end
 
 local function ResetSearchResults(status)
+    selectionUncertain = nil
     openingRetry, queuedSearch = nil, nil
     activeQuery, activeResults = {}, {}
     addon.players, addon.groups = {}, {}
@@ -218,6 +229,30 @@ function addon.SelectionChanged()
     if pending then pending.discard = true end
     ResetSearchResults("Selection changed. Click Search.")
     changed()
+end
+
+local function ReconcileQuerySelection()
+    local query = pending and not pending.discard and pending.activities or activeQuery
+    if not next(query) then return true end
+    local available, complete = addon.Activities()
+    if not complete then
+        selectionUncertain = true
+        for _, entry in ipairs(addon.players or {}) do entry.target = nil end
+        for _, entry in ipairs(addon.groups or {}) do entry.target = nil end
+        changed()
+        return false
+    end
+    local recovered = selectionUncertain == true
+    selectionUncertain = nil
+    local selected = {}
+    for _, entry in ipairs(addon.SelectedActivities(available)) do
+        if not query[entry.id] then addon.SelectionChanged(); return false end
+        selected[entry.id] = true
+    end
+    for id in pairs(query) do
+        if not selected[id] then addon.SelectionChanged(); return false end
+    end
+    return true, recovered
 end
 
 local function DispatchQueuedSearch()
@@ -480,7 +515,7 @@ local function CollectResults(query, snapshot)
                 local leader = read(result.leaderName, "string")
                 local name = leader or (member and read(member.name, "string"))
                 local own = read(result.hasSelf, "boolean")
-                local target = activities and own == false and delisted == false and leader or nil
+                local target = not selectionUncertain and activities and own == false and delisted == false and leader or nil
                 local listedDungeons, seen = {}, {}
                 for _, activityID in ipairs(activities or {}) do
                     local key = read(activityID, "number")
@@ -900,7 +935,7 @@ local function whisper(target, text)
 end
 
 local function ActionTarget(entry)
-    if not entry or not entry.target or entry.own then return end
+    if selectionUncertain or not entry or not entry.target or entry.own then return end
     local destination = entry.activity and entry.activity.id
     if not destination or not activeQuery[destination] or not activeResults.seen or not activeResults.seen[entry.id] then return end
     local current = read(C_LFGList.GetSearchResultInfo(entry.id), "table")
@@ -1000,6 +1035,7 @@ events:SetScript("OnEvent", function(_, event, ...)
         local restriction, state = ...
         if read(restriction, "number") == Enum.AddOnRestrictionType.Chat
             and read(state, "number") == Enum.AddOnRestrictionState.Inactive then
+            if not ReconcileQuerySelection() then return end
             if not pending and not openingRetry and activeResults.ids then
                 addon.players, addon.groups = CollectResults(activeQuery, activeResults)
             end
@@ -1068,16 +1104,10 @@ events:SetScript("OnEvent", function(_, event, ...)
             if listingPending and listingPending.active == active then listingPending = nil end
             if active == true and addon.EndNativeDraft then addon.EndNativeDraft() end
         end
-        local query = pending and not pending.discard and pending.activities or activeQuery
-        if next(query) then
-            local selected = {}
-            for _, entry in ipairs(addon.SelectedActivities()) do
-                if not query[entry.id] then addon.SelectionChanged(); return end
-                selected[entry.id] = true
-            end
-            for id in pairs(query) do
-                if not selected[id] then addon.SelectionChanged(); return end
-            end
+        local matched, recovered = ReconcileQuerySelection()
+        if not matched then return end
+        if recovered and not pending and not openingRetry and activeResults.ids then
+            addon.players, addon.groups = CollectResults(activeQuery, activeResults)
         end
         changed()
     else
