@@ -197,6 +197,10 @@ local function hover(control, label, detail)
     control:SetScript("OnLeave", GameTooltip_Hide)
 end
 
+local function CardCanAct(entry)
+    return entry ~= nil and not entry.own and entry.target ~= nil
+end
+
 local function SameCardEntry(previous, current)
     return previous and current and previous.id == current.id and previous.target == current.target
         and previous.count == current.count and previous.own == current.own and previous.partyGUID == current.partyGUID
@@ -208,37 +212,58 @@ local function ActOnCard(entry)
     if ok == false and reason then UIErrorsFrame:AddMessage(reason, 1, 0.32, 0.24) end
 end
 
-local function CardActionLabel(entry)
+local function DescribeCardAction(entry)
     if entry.count ~= 1 then return "Ask to Join" end
-    if addon.ShouldSuggestInvite() then return SUGGEST_INVITE or "Suggest Invite" end
-    return "Invite to Party"
+    if addon.ShouldSuggestInvite() then return SUGGEST_INVITE or "Suggest Invite", true end
+    return "Invite to Party", false
 end
 
 local function OpenCardMenu(card, entry)
-    if not entry or entry.own or not entry.target then return end
+    if not CardCanAct(entry) then return end
+    local function currentEntry()
+        local current = card.entry
+        if card:IsVisible() and CardCanAct(current) and SameCardEntry(entry, current) then return current end
+    end
     GameTooltip_Hide()
+    local actionLabel, wasSuggestion = DescribeCardAction(entry)
     MenuUtil.CreateContextMenu(card, function(_, menu)
         menu:CreateTitle(entry.name)
         menu:CreateButton(SEND_MESSAGE or "Send Message", function()
-            if card:IsVisible() and SameCardEntry(entry, card.entry) then addon.OpenWhisper(entry) end
+            local current = currentEntry()
+            if current then addon.OpenWhisper(current) end
         end)
-        menu:CreateButton(CardActionLabel(entry), function()
-            if card:IsVisible() and SameCardEntry(entry, card.entry) then ActOnCard(entry) end
+        menu:CreateButton(actionLabel, function()
+            local current = currentEntry()
+            if not current then return end
+            local _, isSuggestion = DescribeCardAction(current)
+            if isSuggestion == wasSuggestion then ActOnCard(current) end
         end)
     end)
 end
 
-local function CaptureCardPress(control, card)
+local function CaptureCardPress(control, card, isActionButton)
     control:SetScript("OnMouseDown", function(self, mouseButton)
         self.pressedCardEntry = card.entry
         self.pressedCardButton = mouseButton
+        self.pressedCardSuggestion = nil
+        if isActionButton and mouseButton == "LeftButton" and CardCanAct(card.entry) then
+            local _, suggestion = DescribeCardAction(card.entry)
+            self.pressedCardSuggestion = suggestion
+        end
     end)
 end
 
 local function FinishCardPress(control, card, mouseButton)
     local entry, buttonPressed = control.pressedCardEntry, control.pressedCardButton
-    control.pressedCardEntry, control.pressedCardButton = nil, nil
-    if buttonPressed == mouseButton and control:IsVisible() and SameCardEntry(entry, card.entry) then return card.entry end
+    local wasSuggestion = control.pressedCardSuggestion
+    control.pressedCardEntry, control.pressedCardButton, control.pressedCardSuggestion = nil, nil, nil
+    if buttonPressed ~= mouseButton or not control:IsVisible() or not CardCanAct(card.entry)
+        or not SameCardEntry(entry, card.entry) then return end
+    if wasSuggestion ~= nil then
+        local _, isSuggestion = DescribeCardAction(card.entry)
+        if isSuggestion ~= wasSuggestion then return end
+    end
+    return card.entry
 end
 
 local function iconCheck(parent, role, label, click, detail)
@@ -276,7 +301,7 @@ end
 local function SetCardTooltip(control, card, action)
     local function show(self)
         local entry = card.entry
-        if not entry then return end
+        if not entry or (action and not CardCanAct(entry)) then return end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         local color = NameColor(entry)
         GameTooltip:SetText(entry.name, color.r, color.g, color.b)
@@ -317,7 +342,7 @@ local function SetCardTooltip(control, card, action)
             AddTooltipLine("+" .. (entry.count - #entry.members) .. " more", detailColor)
         end
         if entry.comment then GameTooltip:AddLine("Comment: " .. entry.comment:gsub("|", "||"), 0.95, 0.95, 0.95, true) end
-        if action then AddTooltipLine(CardActionLabel(entry), detailColor) end
+        if action then AddTooltipLine(DescribeCardAction(entry), detailColor) end
         GameTooltip:Show()
     end
     local function hide(self)
@@ -326,7 +351,7 @@ local function SetCardTooltip(control, card, action)
     control:SetScript("OnEnter", show)
     control:SetScript("OnLeave", hide)
     control:HookScript("OnHide", function(self)
-        self.pressedCardEntry, self.pressedCardButton = nil, nil
+        self.pressedCardEntry, self.pressedCardButton, self.pressedCardSuggestion = nil, nil, nil
         hide(self)
     end)
     return show
@@ -405,7 +430,7 @@ local function BuildCard(parent, width, group)
         if not entry then return end
         if mouseButton == "RightButton" then OpenCardMenu(card, entry) else ActOnCard(entry) end
     end, height - 2)
-    CaptureCardPress(card.action, card)
+    CaptureCardPress(card.action, card, true)
     card.action:SetNormalFontObject(GameFontHighlightLarge)
     card.action:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     card.action:SetPoint("RIGHT", -1, 0)
@@ -504,7 +529,7 @@ local function PaintCard(card, entry, compact, index, groupFontPadding)
         end
         card.memberOverflow:SetText(overflow > 0 and ("+" .. overflow) or "")
     end
-    local actionable = not entry.own and entry.target ~= nil
+    local actionable = CardCanAct(entry)
     card.action:SetShown(actionable)
     local tooltipOwner = GameTooltip:GetOwner()
     if tooltipOwner == card or (actionable and tooltipOwner == card.action) then

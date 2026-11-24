@@ -99,4 +99,47 @@ card.scripts.OnMouseDown(card, "RightButton")
 card.scripts.OnMouseUp(card, "RightButton", true)
 contextActions["Suggest Invite"]()
 assert(actedOn == alice, "the suggestion menu uses the same listing action as the plus button")
+local promoted = false
+function UnitIsGroupLeader() return promoted end
+card.scripts.OnMouseDown(card, "RightButton")
+card.scripts.OnMouseUp(card, "RightButton", true)
+assert(contextActions["Suggest Invite"])
+actedOn, whisperedTo = nil, nil
+promoted = true
+contextActions["Suggest Invite"]()
+assert(not actedOn, "promotion cannot turn an already displayed suggestion into a direct invite")
+contextActions["Send Message"]()
+assert(whisperedTo == alice, "promotion leaves the unrelated whisper option available")
+
+action.scripts.OnEnter(action)
+assert(tooltipLastLine == "Invite to Party")
+action.scripts.OnMouseDown(action, "LeftButton")
+promoted = false
+action.scripts.OnClick(action, "LeftButton")
+assert(not actedOn, "a direct invite pressed before demotion cannot turn into a suggestion")
+
+card.scripts.OnMouseDown(card, "RightButton")
+card.scripts.OnMouseUp(card, "RightButton", true)
+local refreshedAlice = listing(1, "Alice")
+show(refreshedAlice)
+contextActions["Suggest Invite"]()
+assert(actedOn == refreshedAlice, "a current context action uses the refreshed entry")
+card.scripts.OnMouseDown(card, "RightButton")
+card.scripts.OnMouseUp(card, "RightButton", true)
+action.scripts.OnEnter(action)
+action.scripts.OnMouseDown(action, "LeftButton")
+refreshedAlice.target = nil
+show(refreshedAlice)
+assert(not action:IsVisible() and tooltipOwner == nil, "an invalidated target hides the action and its tooltip")
+actedOn, whisperedTo = nil, nil
+action.scripts.OnClick(action, "LeftButton")
+contextActions["Suggest Invite"]()
+contextActions["Send Message"]()
+assert(not actedOn and not whisperedTo, "a context entry invalidated in place cannot dispatch any action")
+refreshedAlice.target, refreshedAlice.own = "Alice", true
+show(refreshedAlice)
+contextTitle = nil
+card.scripts.OnMouseDown(card, "RightButton")
+card.scripts.OnMouseUp(card, "RightButton", true)
+assert(not action:IsVisible() and not contextTitle, "own listings do not offer an action")
 print("Passed card hover identity, press/repaint, context actions, and hidden rows")
