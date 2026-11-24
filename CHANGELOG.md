@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.0 - 24-Nov-2026 — Group cards and search filters
+
+- Group cards show tank, healer and damage slots in a consistent order. Gray icons mark confirmed openings. The listing's playstyle appears when WoW provides it.
+- **Fits me** starts enabled and remembers your choice per character. Groups follow WoW's result order. Nearby players still appear first in their class columns.
+- Dungeon and language menus share a compact design. Dungeon level ranges are aligned, selected languages appear on the button, and the Group Finder portrait stays visible.
+- Keep saved dungeon choices while WoW loads the catalog. Keep card text, comments and extra dungeon counts readable with larger client fonts.
+- Keep invite and suggest actions tied to the option you selected. Send the configured invite whisper when the listing role is temporarily unavailable, and recover cleanly after an uncertain listing attempt.
+- Make completed ZIP files available without exposing a partial archive or overwriting an existing build.
+
 ## 1.3.0 - 24-Nov-2026 — Suggest Invite
 
 - Use the plus button or **Suggest Invite** on a player card to suggest that player to your party leader.
