@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 - 24-Nov-2026 — Suggest Invite
+
+- Use the plus button or **Suggest Invite** on a player card to suggest that player to your party leader.
+- Keep dungeon search results while the details of an active listing are loading. Card actions resume when the selection can be verified.
+- Build the ZIP from the same TOC and changelog bytes that were validated.
+
 ## 1.2.5 - 23-Nov-2026 — Unlist and dungeon search fixes
 
 - Prevent duplicate unlist requests while WoW is processing a removal from the built-in Group Finder.
