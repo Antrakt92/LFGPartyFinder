@@ -2,7 +2,7 @@ local _, addon = ...
 local read = addon.Read
 local title = "LFG Party Finder"
 local currentView, roleFilters, viewRevision = "players", {}, 0
-local groupRoleFilters, roomForMe = {}, false
+local groupRoleFilters = {}
 local window, nativeLauncher
 local commentEdit, commentPost, commentListing, nativeDraft, inlineComposer
 local pendingPostButton, pendingBackButton
@@ -15,7 +15,7 @@ local playerGap = 2
 local cardHeight, actionWidth = 64, 25
 local playerRowHeight = cardHeight + 2
 local groupCardHeight, groupGap, visibleMemberSlots = 78, 4, 5
-local memberIconSize, memberStep = 20, 22
+local memberIconSize, memberStep = 23, 27
 local columnsPerPage, groupColumns = 4, 2
 local fallbackResultsWidth = 392
 local playersTop, groupsTop, resultsBottom = 187, 160, 18
@@ -25,6 +25,7 @@ local white = "Interface\\Buttons\\WHITE8X8"
 local neutralName = { r = 0.95, g = 0.95, b = 0.95 }
 local detailColor = { 0.68, 0.76, 0.79 }
 local dungeonColor = { 0.90, 0.79, 0.52 }
+local playstyleColor = { 0.66, 0.79, 0.62 }
 
 local function surface(frame, r, g, b)
     frame:SetBackdrop({ bgFile = white, edgeFile = white, edgeSize = 1 })
@@ -77,6 +78,113 @@ local function text(parent, label, style)
     control:SetJustifyH("LEFT")
     control:SetText(label)
     return control
+end
+
+local searchMenuInset = { left = 7, right = 7, top = 5, bottom = 5 }
+local searchMenuPadding = { width = 0, height = 0 }
+local searchMenuStyle = {}
+
+function searchMenuStyle:Generate()
+    local border = self:AttachTexture()
+    border:SetAllPoints()
+    border:SetDrawLayer("BACKGROUND", 0)
+    border:SetColorTexture(0.41, 0.33, 0.22, 1)
+    local fill = self:AttachTexture()
+    fill:SetPoint("TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMRIGHT", -1, 1)
+    fill:SetDrawLayer("BACKGROUND", 1)
+    fill:SetColorTexture(0.10, 0.085, 0.067, 1)
+end
+
+function searchMenuStyle:GetInset() return searchMenuInset end
+function searchMenuStyle:GetChildExtentPadding() return searchMenuPadding end
+
+local function SearchDropdown(parent, label, width, alignRight)
+    local dropdown = CreateFrame("DropdownButton", nil, parent, "BackdropTemplate,WowStyle1DropdownTemplate")
+    dropdown:SetSize(width, toolbarButtonHeight)
+    dropdown:SetDefaultText(label)
+    dropdown.menuMixin = searchMenuStyle
+    dropdown:SetMenuAnchor(AnchorUtil.CreateAnchor(alignRight and "TOPRIGHT" or "TOPLEFT", dropdown,
+        alignRight and "BOTTOMRIGHT" or "BOTTOMLEFT", 0, -2))
+    surface(dropdown, 0.14, 0.11, 0.078)
+
+    if dropdown.Background then dropdown.Background:Hide() end
+    if dropdown.Arrow then dropdown.Arrow:Hide() end
+    if dropdown.Text then
+        dropdown.Text:ClearAllPoints()
+        dropdown.Text:SetPoint("LEFT", alignRight and 26 or 8, 0)
+        dropdown.Text:SetPoint("RIGHT", -22, 0)
+        dropdown.Text:SetMaxLines(1)
+        dropdown.Text:SetWordWrap(false)
+    end
+
+    if alignRight then
+        local chat = dropdown:CreateTexture(nil, "ARTWORK")
+        chat:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-Chat-Up")
+        chat:SetPoint("LEFT", 7, 0)
+        chat:SetSize(15, 15)
+        chat:SetVertexColor(0.83, 0.71, 0.50)
+    end
+    local left = dropdown:CreateTexture(nil, "ARTWORK")
+    local right = dropdown:CreateTexture(nil, "ARTWORK")
+    for _, stroke in ipairs({ left, right }) do
+        stroke:SetSize(5, 1.3)
+        stroke:SetColorTexture(0.83, 0.71, 0.50, 1)
+    end
+    left:SetPoint("RIGHT", -13, 0)
+    right:SetPoint("RIGHT", -10, 0)
+    local function update(open)
+        dropdown:SetBackdropColor(open and 0.20 or 0.14, open and 0.15 or 0.11, open and 0.095 or 0.078, 1)
+        dropdown:SetBackdropBorderColor(open and 0.71 or 0.42, open and 0.54 or 0.33, open and 0.30 or 0.21, 1)
+        left:SetRotation(open and 0.6 or -0.6)
+        right:SetRotation(open and -0.6 or 0.6)
+    end
+    update(false)
+    dropdown:RegisterCallback("OnMenuOpen", function() update(true) end)
+    dropdown:RegisterCallback("OnMenuClose", function() update(false) end)
+    return dropdown
+end
+
+local function StyleSearchOption(option, selected, name, range)
+    option:AddInitializer(function(frame, description)
+        local font = frame.fontString
+        if selected(description:GetData()) then
+            local highlight = frame:AttachTexture()
+            highlight:SetPoint("TOPLEFT", -3, 0)
+            highlight:SetPoint("BOTTOMRIGHT", 0, 0)
+            highlight:SetDrawLayer("BACKGROUND", -1)
+            highlight:SetColorTexture(0.22, 0.16, 0.096, 1)
+        end
+        local extra = 0
+        if range then
+            font:SetTextToFit(name)
+            local levels = frame:AttachFontString()
+            levels:SetFontObject(GameFontHighlightSmall)
+            levels:SetTextColor(0.76, 0.70, 0.61)
+            levels:SetHeight(20)
+            levels:SetTextToFit(range)
+            levels:SetPoint("RIGHT", -4, 0)
+            extra = (read(levels:GetUnboundedStringWidth(), "number") or 44) + 16
+        end
+        return 31 + (read(font:GetUnboundedStringWidth(), "number") or 155) + extra, 22
+    end)
+end
+
+local function SearchLanguageLabel(selected)
+    local codes = {}
+    for _, locale in ipairs(addon.searchLocales) do
+        local code = locale[1]
+        if selected[code] then
+            local language = code:sub(1, 2):upper()
+            if code == "esMX" or code == "zhTW" then language = language .. "-" .. code:sub(3) end
+            codes[#codes + 1] = language
+        end
+    end
+    if #codes == 0 then return "Languages" end
+    if #codes == 1 or (#codes == 2 and #codes[1] + #codes[2] == 4) then
+        return table.concat(codes, " · ")
+    end
+    return #codes .. " selected"
 end
 
 local function hover(control, label, detail)
@@ -193,6 +301,7 @@ local function SetCardTooltip(control, card, action)
         local zone = entry.area or "Unknown"
         if entry.rank then zone = zone .. " (nearby)" end
         AddTooltipLine("Zone: " .. zone, detailColor)
+        if entry.playstyle then AddTooltipLine(entry.playstyle, playstyleColor) end
         for _, member in ipairs(entry.members or {}) do
             local role = addon.roles[member.role]
             local class = member.className or (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[member.class])
@@ -244,12 +353,8 @@ local function BuildCard(parent, width, group)
     card.nearby:SetSize(5, 5)
     card.nearby:SetPoint("LEFT", card.name, "LEFT", -9, 0)
     card.nearby:SetColorTexture(1, 0.72, 0.25, 1)
-    card.detail = text(card, "", "GameFontHighlightSmall")
-    card.detail:SetPoint("TOPLEFT", 6, -22)
-    card.detail:SetWordWrap(false)
-    card.detail:SetTextColor(unpack(detailColor))
     card.dungeon = text(card, "", "GameFontHighlightSmall")
-    local dungeonY = group and -48 or -36
+    local dungeonY = group and -22 or -36
     card.dungeon:SetPoint("TOPLEFT", 6, dungeonY)
     card.dungeon:SetWordWrap(false)
     card.dungeon:SetTextColor(unpack(dungeonColor))
@@ -261,15 +366,19 @@ local function BuildCard(parent, width, group)
     card.zone:SetWordWrap(false)
     card.zone:SetTextColor(unpack(detailColor))
     if group then
+        card.playstyle = text(card, "", "GameFontHighlightSmall")
+        card.playstyle:SetJustifyH("RIGHT")
+        card.playstyle:SetWordWrap(false)
+        card.playstyle:SetTextColor(unpack(playstyleColor))
         card.members = {}
         for index = 1, visibleMemberSlots do
             local slot = CreateFrame("Frame", nil, card)
-            slot:SetSize(memberIconSize, 24)
+            slot:SetSize(memberIconSize, memberIconSize + 5)
             slot.roleIcon = slot:CreateTexture(nil, "ARTWORK")
             slot.roleIcon:SetSize(memberIconSize, memberIconSize)
             slot.roleIcon:SetPoint("TOP")
             slot.classBar = slot:CreateTexture(nil, "ARTWORK")
-            slot.classBar:SetSize(14, 3)
+            slot.classBar:SetSize(16, 3)
             slot.classBar:SetPoint("BOTTOM")
             slot.unknownRole = text(slot, "?", "GameFontDisableSmall")
             slot.unknownRole:SetPoint("TOP")
@@ -279,6 +388,10 @@ local function BuildCard(parent, width, group)
         card.memberOverflow:SetPoint("RIGHT", card.members[1], "LEFT", -4, 0)
         card.memberOverflow:SetTextColor(unpack(detailColor))
     else
+        card.detail = text(card, "", "GameFontHighlightSmall")
+        card.detail:SetPoint("TOPLEFT", 6, -22)
+        card.detail:SetWordWrap(false)
+        card.detail:SetTextColor(unpack(detailColor))
         card.icons = {}
         for _, role in ipairs(addon.roles) do
             local icon = card:CreateTexture(nil, "ARTWORK")
@@ -301,22 +414,16 @@ local function BuildCard(parent, width, group)
     return card
 end
 
-local function PaintCard(card, entry, compact, index)
+local function PaintCard(card, entry, compact, index, groupFontPadding)
     card.entry = entry
     local color = NameColor(entry)
     card.name:SetTextColor(color.r, color.g, color.b)
     card.name:SetText(entry.name)
-    local detail = entry.count > 1 and (entry.count .. " players") or (entry.level and tostring(entry.level) or "")
     local width = card:GetWidth()
-    local memberCount = not compact and entry.members and math.min(#entry.members, visibleMemberSlots) or 0
-    local overflow = not compact and entry.count > visibleMemberSlots
-    local rosterWidth = memberCount * memberStep + (overflow and 23 or 0)
-    local textWidth = width - actionWidth - 11
-    card.detail:SetText(overflow and tostring(entry.count) or detail)
-    card.detail:SetWidth(compact and width - actionWidth - 52 or textWidth - rosterWidth)
+    local textWidth = math.max(1, width - actionWidth - 11)
     local extra = entry.listedDungeons and #entry.listedDungeons - 1 or 0
     card.dungeon:SetText(entry.activity and entry.activity.name or "Unknown dungeon")
-    card.dungeon:SetWidth(textWidth - (extra > 0 and 20 or 0))
+    card.dungeon:SetWidth(math.max(1, textWidth - (extra > 0 and 20 or 0)))
     card.extraDungeons:SetText(extra > 0 and ("+" .. extra) or "")
     card.zone:SetText(entry.area or "Unknown zone")
     card.zone:SetWidth(textWidth)
@@ -327,9 +434,26 @@ local function PaintCard(card, entry, compact, index)
     local nameLeft = isNearby and 15 or 6
     card.name:SetPoint("TOPLEFT", nameLeft, -7)
     card.commentMark:SetShown(entry.comment ~= nil)
-    card.name:SetWidth(width - actionWidth - nameLeft - (entry.comment and 15 or 4))
+    local nameWidth = width - actionWidth - nameLeft - (entry.comment and 15 or 4)
+    if card.playstyle then
+        card.playstyle:SetText(entry.playstyle or "")
+        card.playstyle:SetShown(entry.playstyle ~= nil)
+        if entry.playstyle then
+            local widthLimit = textWidth * 0.43
+            card.playstyle:SetWidth(widthLimit)
+            local measuredWidth = read(card.playstyle:GetStringWidth(), "number")
+            local styleWidth = math.min(measuredWidth and measuredWidth > 0 and measuredWidth or 64, widthLimit)
+            card.playstyle:SetWidth(styleWidth)
+            card.playstyle:SetPoint("TOPRIGHT", -actionWidth - (entry.comment and 15 or 4), -7)
+            nameWidth = nameWidth - styleWidth - 6
+        end
+    end
+    card.name:SetWidth(math.max(1, nameWidth))
     card:SetBackdropBorderColor(0.66, 0.56, 0.29, isNearby and 1 or 0)
     if compact then
+        local detail = entry.count > 1 and (entry.count .. " players") or (entry.level and tostring(entry.level) or "")
+        card.detail:SetText(detail)
+        card.detail:SetWidth(math.max(1, width - actionWidth - 52))
         local shown = 0
         for _, role in ipairs(addon.roles) do
             local icon = card.icons[role.key]
@@ -342,20 +466,43 @@ local function PaintCard(card, entry, compact, index)
             end
         end
     else
+        local dungeonY = -22 - groupFontPadding
+        card.dungeon:SetPoint("TOPLEFT", 6, dungeonY)
+        card.extraDungeons:SetPoint("TOPRIGHT", -actionWidth - 5, dungeonY)
+        card.zone:SetPoint("TOPLEFT", 6, -35 - 2 * groupFontPadding)
+        local members = entry.rosterSlots or entry.members or {}
+        local memberCount = math.min(#members, visibleMemberSlots)
+        local overflow = entry.count - visibleMemberSlots
+        local overflowWidth = overflow > 0 and 23 or 0
+        local step = math.min(memberStep, math.max(1, (textWidth - overflowWidth) / math.max(1, memberCount)))
+        local size = math.min(memberIconSize, math.max(1, step - 4))
+        local left = 6 + (textWidth + overflowWidth - memberCount * step) / 2
         for slotIndex, slot in ipairs(card.members) do
-            local member = entry.members and entry.members[slotIndex]
+            local member = members[slotIndex]
             local role = member and addon.roles[member.role]
             local class = member and member.class
-            local classColor = addon.knownClasses[class] and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-            if role then slot.roleIcon:SetAtlas(role.icon, false) end
-            if classColor then slot.classBar:SetColorTexture(classColor.r, classColor.g, classColor.b, 1) end
-            if member then slot:SetPoint("TOPRIGHT", -actionWidth - 6 - (memberCount - slotIndex) * memberStep, -22) end
+            local vacant = member ~= nil and member.vacant == true
+            local classColor = not vacant and addon.knownClasses[class] and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+            if member then
+                slot:SetSize(size, size + 5)
+                slot:SetPoint("TOPLEFT", left + (slotIndex - 1) * step + (step - size) / 2, -47 - 3 * groupFontPadding)
+            end
+            if role then
+                slot.roleIcon:SetSize(size, size)
+                slot.roleIcon:SetAtlas(role.icon, false)
+                slot.roleIcon:SetDesaturated(vacant)
+                slot.roleIcon:SetAlpha(vacant and 0.66 or 1)
+            end
+            if classColor then
+                slot.classBar:SetWidth(math.min(16, size))
+                slot.classBar:SetColorTexture(classColor.r, classColor.g, classColor.b, 1)
+            end
             slot.roleIcon:SetShown(role ~= nil)
             slot.unknownRole:SetShown(member ~= nil and role == nil)
             slot.classBar:SetShown(not not classColor)
             slot:SetShown(member ~= nil)
         end
-        card.memberOverflow:SetText(overflow and ("+" .. (entry.count - visibleMemberSlots)) or "")
+        card.memberOverflow:SetText(overflow > 0 and ("+" .. overflow) or "")
     end
     local actionable = not entry.own and entry.target ~= nil
     card.action:SetShown(actionable)
@@ -379,8 +526,11 @@ local function RenderResults()
     local nearbyCount, columnsShown = 0, 0
     if currentView == "groups" then
         local groups = parts.visibleGroups or {}
+        local fontHeight = GameFontHighlightSmall and select(2, GameFontHighlightSmall:GetFont())
+        local fontPadding = math.max(0, (read(fontHeight, "number") or 10) - 10)
+        local rowHeight = groupCardHeight + 3 * fontPadding
         count = #groups
-        if count > 0 then height = math.ceil(count / groupColumns) * (groupCardHeight + groupGap) - groupGap end
+        if count > 0 then height = math.ceil(count / groupColumns) * (rowHeight + groupGap) - groupGap end
         local windowHeight = read(window:GetHeight(), "number")
         local needsScrollbar = not windowHeight or height > windowHeight - groupsTop - resultsBottom
         local availableWidth = LayoutResults(groupsInset, needsScrollbar and scrollbarInset or groupsInset, groupsTop)
@@ -391,10 +541,11 @@ local function RenderResults()
                 card = BuildCard(parts.content, width, true)
                 parts.groupCards[index] = card
             end
-            card:SetWidth(width)
+            card:SetSize(width, rowHeight)
+            card.action:SetHeight(rowHeight - 2)
             card:SetPoint("TOPLEFT", (index - 1) % groupColumns * (width + groupGap),
-                -math.floor((index - 1) / groupColumns) * (groupCardHeight + groupGap))
-            PaintCard(card, entry, false, index)
+                -math.floor((index - 1) / groupColumns) * (rowHeight + groupGap))
+            PaintCard(card, entry, false, index, fontPadding)
             card:Show()
         end
     end
@@ -547,14 +698,14 @@ function addon.Refresh()
         check.icon:SetDesaturated(not included)
         check.icon:SetAlpha(included and 1 or 0.42)
     end
-    local languageCount = 0
-    for _ in pairs(addon.db.searchLanguages) do languageCount = languageCount + 1 end
-    parts.languageFilter:OverrideText(languageCount == 0 and "All languages" or ("Languages (" .. languageCount .. ")"))
-    local hasRoomRoles = roles ~= nil and (roles.tank or roles.healer or roles.dps)
+    parts.languageFilter:OverrideText(SearchLanguageLabel(addon.db.searchLanguages))
+    local hasRoomRoles = roles ~= nil and (roles.tank == true or roles.healer == true or roles.dps == true)
+    local fitsMe = hasRoomRoles and addon.db.fitsMe == true
     parts.roomFilter:SetEnabled(hasRoomRoles)
-    parts.roomFilter:SetChecked(roomForMe and hasRoomRoles)
+    parts.roomFilter.tick:SetShown(fitsMe)
+    paintButton(parts.roomFilter, fitsMe)
     parts.visibleGroups = addon.FilterGroups(addon.groups or {}, groupRoleFilters,
-        roomForMe and hasRoomRoles and roles or nil, excludedClasses)
+        fitsMe and roles or nil, excludedClasses)
     if addon.players and (not addon.status or #addon.players > 0) then
         local playerCount = 0
         for _, player in ipairs(addon.players) do
@@ -1291,7 +1442,7 @@ local function BuildListingControls(parent)
     for index, role in ipairs(addon.roles) do
         local check = iconCheck(myRoles, role, role.label, function(self)
             addon.SetListingRole(role.key, self:GetChecked() == true)
-        end, "Used by Room for me and when listing solo. While listed solo, the checked icons show your current listing roles.")
+        end, "Used by Fits me and when listing solo. While listed solo, the checked icons show your current listing roles.")
         check:SetPoint("LEFT", 47 + (index - 1) * 30, 0)
         parts.roleChoices[role.key] = check
     end
@@ -1307,21 +1458,18 @@ local function BuildContents()
     header:SetHeight(playersTop)
     parts.header = header
     for index, view in ipairs({{"players", "Players"}, {"groups", "Groups"}, {"settings", "Settings"}}) do
-        local tab = button(header, view[2], 138, function() SelectView(view[1]) end)
-        tab:SetPoint("TOPLEFT", 12 + (index - 1) * 146, -12)
+        local tab = button(header, view[2], 122, function() SelectView(view[1]) end)
+        tab:SetPoint("TOPLEFT", 60 + (index - 1) * 130, -12)
         parts.tabs[view[1]] = tab
     end
     local toolbar = CreateFrame("Frame", nil, header)
     toolbar:SetAllPoints()
     parts.toolbar = toolbar
-    local activity = CreateFrame("DropdownButton", nil, toolbar, "WowStyle1DropdownTemplate")
+    local activity = SearchDropdown(toolbar, "Choose dungeons", 216)
     activity:SetPoint("LEFT", toolbar, "TOPLEFT", 12, -48 - toolbarButtonHeight / 2)
-    activity:SetWidth(216)
-    activity:SetDefaultText("Choose dungeons")
     activity:SetupMenu(function(dropdown, menu)
-        local allLevels = menu:CreateCheckbox("Show all levels", function()
-            return addon.db.showAllLevels
-        end, function()
+        local function showAllLevels() return addon.db.showAllLevels end
+        local allLevels = menu:CreateCheckbox("Show all levels", showAllLevels, function()
             local before = addon.SelectedActivities()
             addon.db.showAllLevels = not addon.db.showAllLevels
             local after = addon.SelectedActivities()
@@ -1340,29 +1488,33 @@ local function BuildContents()
             -- Let the menu finish closing before the dropdown builds the new list.
             local revision = viewRevision
             C_Timer.After(0, function()
-                if revision == viewRevision and dropdown:IsVisible() and not dropdown:IsMenuOpen() then
+                if revision == viewRevision and dropdown:IsVisible() and not Menu.GetManager():GetOpenMenu() then
                     dropdown:OpenMenu()
                 end
             end)
         end)
+        StyleSearchOption(allLevels, showAllLevels)
         allLevels:SetSelectionIgnored()
         allLevels:SetResponse(MenuResponse.Close)
         menu:CreateDivider()
         local entries = addon.Activities()
         if #entries == 0 then menu:CreateTitle("No dungeons for this level"); return end
-        menu:SetScrollMode(280)
+        menu:SetScrollMode(190)
         for _, entry in ipairs(entries) do
-            local range = entry.min > 0 and ("  (" .. entry.min .. "–" .. entry.max .. ")") or ""
-            menu:CreateCheckbox(entry.name .. range, function(id)
-                    if addon.db.manualDungeonSelection then return addon.db.activities[id] == true end
-                    local automatic = addon.SelectedActivities(entries)[1]
-                    return automatic ~= nil and id == automatic.id
-                end,
+            local range = entry.min > 0 and (entry.min .. "–" .. entry.max) or nil
+            local function selected(id)
+                if addon.db.manualDungeonSelection then return addon.db.activities[id] == true end
+                local automatic = addon.SelectedActivities(entries)[1]
+                return automatic ~= nil and id == automatic.id
+            end
+            local label = range and (entry.name .. "  (" .. range .. ")") or entry.name
+            local option = menu:CreateCheckbox(label, selected,
                 function(id)
                     parts.results:SetVerticalScroll(0)
                     classPage = 1
                     addon.ToggleActivity(id)
                 end, entry.id)
+            StyleSearchOption(option, selected, entry.name, range)
         end
     end)
     parts.activity = activity
@@ -1408,18 +1560,17 @@ local function BuildContents()
         check:SetPoint("LEFT", 57 + (index - 1) * 30, 0)
         parts.groupRoleChecks[role.key] = check
     end
-    local room = CreateFrame("CheckButton", nil, groupFilter, "UICheckButtonTemplate")
-    room:SetSize(21, 21)
+    local room = button(groupFilter, "Fits me", 84, function()
+        addon.db.fitsMe = not addon.db.fitsMe
+        refreshGroupFilters()
+    end, 22)
     room:SetMotionScriptsWhileDisabled(true)
     room:SetPoint("LEFT", 151, 0)
-    local roomLabel = text(groupFilter, "Room for me", "GameFontHighlightSmall")
-    roomLabel:SetPoint("LEFT", room, "RIGHT", 4, 0)
-    room:SetHitRectInsets(0, -78, 0, 0)
-    room:SetScript("OnClick", function(self)
-        roomForMe = self:GetChecked() == true
-        refreshGroupFilters()
-    end)
-    hover(room, "Room for me", "Shows groups with a slot for one of the roles checked on the right. Select at least one role to use this filter.")
+    room.tick = room:CreateTexture(nil, "ARTWORK")
+    room.tick:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    room.tick:SetSize(14, 14)
+    room.tick:SetPoint("LEFT", 4, 0)
+    hover(room, "Fits me", "Shows groups with an opening for any of your selected roles. Select at least one role to use this filter.")
     parts.roomFilter = room
     parts.groupFilter = groupFilter
 
@@ -1463,30 +1614,34 @@ local function BuildContents()
             parts.classChecks[class] = check
         end
     end
-    local languageFilter = CreateFrame("DropdownButton", nil, toolbar, "WowStyle1DropdownTemplate")
+    local languageFilter = SearchDropdown(toolbar, "Languages", 130, true)
     languageFilter:SetPoint("RIGHT", toolbar, "TOPRIGHT", -12, -119)
-    languageFilter:SetWidth(140)
-    languageFilter:SetDefaultText("All languages")
     local function languageChanged()
         classPage = 1
         parts.results:SetVerticalScroll(0)
         addon.SelectionChanged()
     end
     languageFilter:SetupMenu(function(_, menu)
-        local all = menu:CreateCheckbox("All languages", function() return not next(addon.db.searchLanguages) end, function()
+        local function allLanguages() return not next(addon.db.searchLanguages) end
+        menu:SetMinimumWidth(194)
+        menu:SetScrollMode(190)
+        local all = menu:CreateCheckbox("All languages", allLanguages, function()
             if not next(addon.db.searchLanguages) then return end
             addon.db.searchLanguages = {}
             languageChanged()
         end)
+        StyleSearchOption(all, allLanguages)
         all:SetSelectionIgnored()
         menu:CreateDivider()
+        local function selected(code) return addon.db.searchLanguages[code] == true end
         for _, locale in ipairs(addon.searchLocales) do
-            local option = menu:CreateCheckbox(locale[2], function(code) return addon.db.searchLanguages[code] == true end,
+            local option = menu:CreateCheckbox(locale[2], selected,
                 function(code)
                     local selected = addon.db.searchLanguages
                     selected[code] = not selected[code] or nil
                     languageChanged()
                 end, locale[1])
+            StyleSearchOption(option, selected)
             option:SetSelectionIgnored()
         end
     end)
@@ -1500,7 +1655,8 @@ local function BuildContents()
         if currentView == "players" then
             roleFilters = {}
         elseif currentView == "groups" then
-            groupRoleFilters, roomForMe = {}, false
+            groupRoleFilters = {}
+            addon.db.fitsMe = false
         end
         addon.db.excludedClasses = {}
         classPage = 1
@@ -1580,7 +1736,23 @@ local function AddNativeLauncher()
 
     local nativeTabs = { parent.ListingTab, parent.BrowsingTab, parent.WhoListingTab }
     local selectionAlpha = {}
+    local portrait = _G.LFGParentFramePortrait
+    local portraitStrata, portraitLevel
+    local function raisePortrait()
+        if not portrait or portraitStrata then return end
+        portraitStrata = portrait:GetFrameStrata()
+        portraitLevel = portrait:GetFrameLevel()
+        portrait:SetFrameStrata(window:GetFrameStrata())
+        portrait:SetFrameLevel(window:GetFrameLevel() + 1)
+    end
+    local function restorePortrait()
+        if not portraitStrata then return end
+        portrait:SetFrameStrata(portraitStrata)
+        portrait:SetFrameLevel(portraitLevel)
+        portraitStrata, portraitLevel = nil, nil
+    end
     window:SetScript("OnShow", function()
+        raisePortrait()
         for _, tab in ipairs(nativeTabs) do
             local texture = tab.SelectedTexture
             local alpha = texture and read(texture:GetAlpha(), "number")
@@ -1592,6 +1764,7 @@ local function AddNativeLauncher()
         nativeLauncher:SetChecked(true)
     end)
     window:SetScript("OnHide", function()
+        restorePortrait()
         viewRevision = viewRevision + 1
         if inlineComposer then addon.EndNativeDraft() end
         for texture, alpha in pairs(selectionAlpha) do texture:SetAlpha(alpha) end

@@ -2,11 +2,32 @@
 local fixturePath = (arg[0]:match("^(.*[/\\])") or "") .. "window_fixture.lua"
 local addon, frames, deferred = assert(loadfile(fixturePath))(arg[1] or ".")
 
-local dropdown
+local dropdown, languages
 for _, frame in ipairs(frames) do
-    if frame.kind == "DropdownButton" then dropdown = frame; break end
+    if frame.kind == "DropdownButton" and frame:IsVisible() then
+        if not dropdown then dropdown = frame elseif frame.label == "Languages" then languages = frame end
+    end
 end
 assert(dropdown and dropdown:IsVisible())
+assert(languages)
+assert(dropdown.menuAnchor[1] == "TOPLEFT" and dropdown.menuAnchor[2] == dropdown
+    and dropdown.menuAnchor[3] == "BOTTOMLEFT" and dropdown.menuAnchor[5] < 0)
+assert(languages.menuAnchor[1] == "TOPRIGHT" and languages.menuAnchor[2] == languages
+    and languages.menuAnchor[3] == "BOTTOMRIGHT" and languages.menuAnchor[5] == dropdown.menuAnchor[5])
+assert(dropdown.menuMixin == languages.menuMixin and dropdown.height == languages.height)
+assert(not dropdown.Background:IsShown() and not languages.Arrow:IsShown())
+assert(languages.width - languages.Text.LEFT[1] + languages.Text.RIGHT[1] >= 82,
+    "the caption must fit the widest selected count in the supported font families")
+
+local idle = dropdown.backdropColor[1]
+dropdown:OpenMenu()
+assert(dropdown.backdropColor[1] > idle)
+dropdown:CloseMenu()
+assert(dropdown.backdropColor[1] == idle)
+languages:OpenMenu()
+assert(languages.menuWidth > languages.width and languages.scrollHeight)
+assert(languages.options[1].label == "All languages" and languages.options[1].selected())
+languages:CloseMenu()
 
 assert(#addon.SelectedActivities() == 1 and not addon.db.manualDungeonSelection)
 addon.SetAutomaticDungeonSelection(false)
@@ -68,7 +89,10 @@ dropdown:OpenMenu()
 dropdown:PickOption(1)
 local groups
 for _, frame in ipairs(frames) do
-    if frame.kind == "Button" and frame:IsVisible() and frame.label:match("^Groups") then groups = frame; break end
+    if frame.kind == "Button" and frame:IsVisible() and frame.label and frame.label:match("^Groups") then
+        groups = frame
+        break
+    end
 end
 assert(groups).scripts.OnClick()
 table.remove(deferred, 1)()
@@ -80,4 +104,10 @@ LFGParentFrame:Hide()
 SlashCmdList.PARTYFINDERFOREVER()
 table.remove(deferred, 1)()
 assert(dropdown:IsVisible() and not dropdown:IsMenuOpen(), "a deferred menu cannot cross a close and reopen")
+
+dropdown:OpenMenu()
+dropdown:PickOption(1)
+languages:OpenMenu()
+table.remove(deferred, 1)()
+assert(languages:IsMenuOpen() and not dropdown:IsMenuOpen(), "a deferred menu must not replace the newly opened menu")
 print("Passed activity menu order, in-place dungeon checks, level changes and cancellation")

@@ -16,6 +16,7 @@ addon.defaults = {
     excludedClasses = {},
     searchLanguages = {},
     showAllLevels = false,
+    fitsMe = true,
     listingPlaystyle = "FunRelaxed",
     listingVoice = "None",
     listingNewPlayerFriendly = false,
@@ -431,7 +432,7 @@ local function GroupRoster(id, count, counts)
 
     if #members < limit and counts then
         for index, role in ipairs(addon.roles) do
-            local total = counts and read(counts[role.token], "number") or 0
+            local total = read(counts[role.token], "number") or 0
             local missing = math.min(limit - #members, total - (knownRoles[index] or 0))
             for _ = 1, missing do members[#members + 1] = { role = index } end
         end
@@ -446,9 +447,42 @@ local function GroupRoster(id, count, counts)
         local total = counts and read(counts[role.token], "number") or 0
         local remaining = counts and read(counts[role.token .. "_REMAINING"], "number") or 0
         filled[role.key] = total > 0 or knownRoles[index] ~= nil
-        open[role.key] = remaining > 0
+        open[role.key] = remaining > 0 and remaining % 1 == 0
     end
     return members, filled, open
+end
+
+local function StandardRoster(members, count, activity, counts)
+    if not counts or not activity or activity.capacity ~= 5 or count > 5 then return end
+    if (read(counts.NOROLE, "number") or 0) ~= 0 then return end
+    local buckets = { {}, {}, {} }
+    for _, member in ipairs(members) do
+        local bucket = buckets[member.role]
+        if bucket then bucket[#bucket + 1] = member end
+    end
+
+    -- Publish a role placeholder only when the native vacancy count and the
+    -- occupied totals agree on all five standard dungeon slots.
+    local slots, occupied = {}, 0
+    for index, role in ipairs(addon.roles) do
+        local limit = index == 3 and 3 or 1
+        local bucket = buckets[index]
+        local total = read(counts[role.token], "number")
+        local remaining = read(counts[role.token .. "_REMAINING"], "number")
+        if not total or total < #bucket or total > limit or total % 1 ~= 0 or remaining ~= limit - total then return end
+        occupied = occupied + total
+        for i = 1, total do slots[#slots + 1] = bucket[i] or { role = index } end
+        for _ = 1, remaining do slots[#slots + 1] = { role = index, vacant = true } end
+    end
+    if occupied == count then return slots end
+end
+
+local function GroupHasSpace(count, activities)
+    for _, activity in ipairs(activities) do
+        local capacity = activity.capacity
+        if not capacity or capacity <= 0 or count < capacity then return true end
+    end
+    return #activities == 0
 end
 
 local function GroupClassSummary(members, counts, memberCount)
@@ -541,23 +575,24 @@ local function CollectResults(query, snapshot)
                     target = target, partyGUID = read(result.partyGUID, "string"), count = count, own = own,
                     class = class, specName = ListingSpecialization(member, class),
                     level = member and read(member.level, "number"), roles = rolesFrom(member),
-                    area = area, rank = rank, activity = listedDungeons[1], listedDungeons = listedDungeons,
+                    area = area, rank = count == 1 and rank or nil, activity = listedDungeons[1], listedDungeons = listedDungeons,
                     comment = comment and comment:find("%S") and comment or nil }
                 if count > 1 then
                     local counts = C_LFGList.GetSearchResultMemberCounts and read(C_LFGList.GetSearchResultMemberCounts(id), "table")
                     entry.members, entry.filledRoles, entry.openRoles = GroupRoster(id, count, counts)
                     entry.memberClasses, entry.hasCompleteClasses = GroupClassSummary(entry.members, counts, count)
+                    entry.rosterSlots = StandardRoster(entry.members, count, entry.activity, counts)
+                    if not GroupHasSpace(count, listedDungeons) then entry.openRoles = {} end
+                    local playstyle = read(result.generalPlaystyle, "number")
+                    if playstyle and GetGeneralPlaystyleString then
+                        entry.playstyle = read(GetGeneralPlaystyleString(playstyle), "string")
+                    end
                 end
                 local list = count == 1 and players or groups
                 list[#list + 1] = entry
             end
         end
     end
-    table.sort(groups, function(a, b)
-        local aRank, bRank = a.rank or 4, b.rank or 4
-        if aRank ~= bRank then return aRank < bRank end
-        return snapshot.seen[a.id] < snapshot.seen[b.id]
-    end)
     return players, groups, foundOtherActivity and not foundMatchingActivity
 end
 

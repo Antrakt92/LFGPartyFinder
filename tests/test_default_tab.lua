@@ -11,8 +11,15 @@ end
 LFGParentFrame:Hide()
 LFGVanilla_ToggleFrame(1) -- Blizzard TOGGLEGROUPFINDER binding.
 assert(LFGParentFrame:IsShown() and visibleButton("Players"), "normal Group Finder toggle opens Party Finder")
+local players = visibleButton("Players")
+local addonPanel = players.parent.parent
+assert(players.TOPLEFT[1] >= 58, "the first tab clears the native portrait")
+assert(LFGParentFramePortrait:GetFrameStrata() == addonPanel:GetFrameStrata()
+    and LFGParentFramePortrait:GetFrameLevel() > addonPanel:GetFrameLevel(), "the native portrait renders over the panel")
 LFGVanilla_ToggleFrame(1)
 assert(not LFGParentFrame:IsShown() and not visibleButton("Players"), "same key closes the native window")
+assert(LFGParentFramePortrait:GetFrameStrata() == "HIGH" and LFGParentFramePortrait:GetFrameLevel() == 4,
+    "closing the embedded window restores the native portrait")
 
 LFGVanilla_ToggleFrame(3)
 assert(LFGParentFrame:IsShown() and not visibleButton("Players") and LFGParentFrame.selectedTab == 3)

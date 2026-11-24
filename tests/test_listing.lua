@@ -15,7 +15,8 @@ end
 assert(gear and gear.width == 28)
 for index, label in ipairs({ "Players", "Groups", "Settings" }) do
     local tab = assert(find("Button", label))
-    assert(tab.width == 138 and tab.TOPLEFT[1] == 12 + (index - 1) * 146)
+    assert(tab.width == 122 and tab.TOPLEFT[1] == 60 + (index - 1) * 130)
+    assert(tab.TOPLEFT[1] + tab.width <= 454, "tabs fit the stock Group Finder")
 end
 local roleButtons = {}
 for _, label in ipairs({ "Find roles", "My roles" }) do
@@ -803,6 +804,7 @@ end
 C_LFGList.GetSearchResultLeaderInfo = function()
     return { classFilename = "HUNTER", specName = "Survival", lfgRoles = { dps = true } }
 end
+addon.db.fitsMe = false -- The comment test includes a group with unreported vacancies.
 search()
 finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_SEARCH_RESULTS_RECEIVED")
 local card = assert(find("FontString", "Commenter")).parent

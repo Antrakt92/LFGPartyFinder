@@ -24,15 +24,10 @@ addon.groups = {
     { id = 2, name = "Healer needed", count = 4, openRoles = { healer = true } },
 }
 addon.Refresh()
-assert(visible("Button", "Groups (2)")).scripts.OnClick()
+assert(visible("Button", "Groups (1)")).scripts.OnClick()
 local groupFilter = assert(visible("FontString", "Has roles")).parent
-local room
-for _, control in ipairs(frames) do
-    if control.parent == groupFilter and control.template == "UICheckButtonTemplate" then room = control end
-end
-assert(room)
-room:SetChecked(true)
-room.scripts.OnClick(room)
+local room = assert(visible("Button", "Fits me"))
+assert(room.parent == groupFilter and room.tick:IsVisible())
 assert(visible("Button", "Groups (1)") and visible("FontString", "Healer needed"))
 
 grouped = true
@@ -59,12 +54,12 @@ assert(tank.enabled == false and visible("FontString", "Tank needed"))
 assert(not visible("FontString", "Healer needed") and addon.db.listingRoles.healer)
 nativeRoles = nil
 addon.Refresh()
-assert(not room.enabled and not room:GetChecked() and visible("Button", "Groups (2)"),
+assert(not room.enabled and not room.tick:IsVisible() and visible("Button", "Groups (2)"),
     "uncertain active roles suspend the room filter rather than hiding groups")
 
 active = false
 rosterUpdated()
-assert(room.enabled and room:GetChecked() and healer:GetChecked() and healer.enabled)
+assert(room.enabled and room.tick:IsVisible() and healer:GetChecked() and healer.enabled)
 assert(visible("FontString", "Healer needed") and not visible("FontString", "Tank needed"))
 grouped = true
 local leader = false

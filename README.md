@@ -32,7 +32,7 @@ listing from the same panel.
 
 | Players | Groups | Your listing |
 |---|---|---|
-| Class columns, role filters and nearby players first. | Group roles, class colors, and a filter for an open slot that matches your roles. | Pick your roles, list yourself or your party, and unlist with one click. |
+| Class columns, role filters and nearby players first. | Group roles, class colors, and open slots that match your roles. | Pick your roles, list yourself or your party, and unlist with one click. |
 
 ![Player search with class columns, nearby markers and invite buttons](screenshots/players.png)
 
@@ -60,7 +60,7 @@ client. The addon is standalone and is built for WoW Forever 1.60.1.
 2. Select one or more dungeons and click **Search**. The first recommended dungeon
    is selected automatically until you choose dungeons by hand or turn that setting off.
 3. Switch between **Players** and **Groups**. Click a class icon to include or
-   exclude it in both views, or use **All languages** to narrow the search languages.
+   exclude it in both views, or use **Languages** to narrow the search languages.
    If class or role filters hide all results, click **Reset filters** to see them again.
 4. Click **+** to invite a player or contact a group leader. Right-click a card for
    **Send Message** and other actions.
@@ -70,9 +70,11 @@ client. The addon is standalone and is built for WoW Forever 1.60.1.
 - **Players.** Browse by class and role. Players in or near the selected dungeon
   appear first in each class column. Hover for the full name, location, activities,
   and specialization when the game supplies it.
-- **Groups.** See roles and class colors. Filter for a group that already has a tank,
-  healer or damage dealer, or use **Room for me** to match an open slot to your roles.
-  Hover to see the roster and any listing comment.
+- **Groups.** See the playstyle, class colors, and open roles when available. In a
+  standard dungeon lineup, slots appear in tank, healer, and damage order. Gray
+  icons show open slots. **Fits me** starts enabled and shows groups with an opening
+  for any selected role. Click it to see other groups that match your filters. The
+  setting is saved per character. Hover to see the roster and any listing comment.
 - **Listing.** Choose one or more roles and use **List Me** or **List Party**. The flag
   marks a listing as **New Player Friendly**. Listing options include playstyle and
   voice chat. To publish with a comment, type in the WoW field in Settings and use

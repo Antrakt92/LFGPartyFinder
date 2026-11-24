@@ -1,5 +1,6 @@
 local addonRoot = ...
 local frames, deferred = {}, {}
+local openMenu
 local methods = {}
 setmetatable(methods, { __index = function(_, key)
     if key:match("^[A-Z]") then return function() end end
@@ -10,6 +11,10 @@ function CreateFrame(kind, _, parent, template)
     frames[#frames + 1] = frame
     if template == "LargeSideTabButtonTemplate" or template == "LFGOptionsButton" then
         frame.Icon = CreateFrame("Texture", nil, frame)
+    elseif template == "BackdropTemplate,WowStyle1DropdownTemplate" then
+        frame.Background = CreateFrame("Texture", nil, frame)
+        frame.Arrow = CreateFrame("Texture", nil, frame)
+        frame.Text = CreateFrame("FontString", nil, frame)
     end
     return frame
 end
@@ -18,7 +23,10 @@ function methods:CreateTexture() return CreateFrame("Texture", nil, self) end
 function methods:CreateMaskTexture() return CreateFrame("MaskTexture", nil, self) end
 function methods:AddMaskTexture(mask) self.mask = mask end
 function methods:SetVertexColor(...) self.vertexColor = { ... } end
+function methods:SetDesaturated(value) self.desaturated = value end
 function methods:SetColorTexture(...) self.textureColor = { ... } end
+function methods:SetRotation(rotation) self.rotation = rotation end
+function methods:SetBackdropColor(...) self.backdropColor = { ... } end
 function methods:CreateAnimationGroup()
     local animation = CreateFrame("AnimationGroup", nil, self)
     animation.Play = function(self) self.playing = true end
@@ -111,9 +119,20 @@ function methods:IsVisible() return self.shown and (not self.parent or self.pare
 function methods:SetCustomOnMouseUpHandler(callback) self.launch = callback end
 function methods:EnableRegenerateOnResponse() self.regenerateOnResponse = true end
 function methods:SetupMenu(generator) self.generator = generator end
+function methods:SetMenuAnchor(anchor) self.menuAnchor = anchor end
+function methods:RegisterCallback(event, callback)
+    self.callbacks = self.callbacks or {}
+    self.callbacks[event] = callback
+end
 function methods:IsMenuOpen() return self.options ~= nil end
+function methods:CloseMenu()
+    self.options = nil
+    if openMenu == self then openMenu = nil end
+    if self.callbacks and self.callbacks.OnMenuClose then self.callbacks.OnMenuClose(self) end
+end
 function methods:OpenMenu()
     assert(not self:IsMenuOpen(), "never replace an open menu")
+    if openMenu then openMenu:CloseMenu() end
     local options = {}
     self.generator(self, {
         CreateCheckbox = function(_, label, selected, click, data)
@@ -121,22 +140,26 @@ function methods:OpenMenu()
                 label = label, selected = selected, click = click, id = data,
                 SetSelectionIgnored = function(self) self.ignored = true end,
                 SetResponse = function(self, response) self.response = response end,
+                AddInitializer = function(self, initializer) self.initializer = initializer end,
             }
             options[#options + 1] = option
             return option
         end,
         CreateDivider = function() self.dividerAfter = #options end,
-        SetScrollMode = function() end,
+        SetScrollMode = function(_, height) self.scrollHeight = height end,
+        SetMinimumWidth = function(_, width) self.menuWidth = width end,
     })
     self.options = options
+    openMenu = self
     self.menuOffset = 0
+    if self.callbacks and self.callbacks.OnMenuOpen then self.callbacks.OnMenuOpen(self) end
 end
 function methods:PickOption(index)
     local option = self.options[index]
     option.click(option.id)
     -- The native dropdown receives the selection callback before processing its response.
     if self.regenerateOnResponse then self:OpenMenu() end
-    if option.response == MenuResponse.Close then self.options = nil end
+    if option.response == MenuResponse.Close then self:CloseMenu() end
 end
 
 function canaccessvalue() return true end
@@ -148,13 +171,16 @@ end
 function ScrollFrame_OnScrollRangeChanged() end
 
 SlashCmdList = {}
+AnchorUtil = { CreateAnchor = function(...) return { ... } end }
+local menuManager = { GetOpenMenu = function() return openMenu end }
+Menu = { GetManager = function() return menuManager end }
 MenuResponse = { Close = "close" }
 C_Timer = { After = function(delay, callback)
     assert(delay == 0 or delay == 5 or delay == 6)
     deferred[#deferred + 1] = callback
 end }
 local activities = {
-    { fullName = "Scarlet Graveyard", minLevelSuggestion = 30, maxLevelSuggestion = 38, orderIndex = 0 },
+    { fullName = "Scarlet Graveyard", minLevelSuggestion = 30, maxLevelSuggestion = 38, orderIndex = 0, maxNumPlayers = 5 },
     { fullName = "Gnomeregan", minLevelSuggestion = 29, maxLevelSuggestion = 38, orderIndex = 0 },
     { fullName = "Razorfen Kraul", minLevelSuggestion = 29, maxLevelSuggestion = 38, orderIndex = 0 },
     { fullName = "Ragefire Chasm", minLevelSuggestion = 13, maxLevelSuggestion = 18, orderIndex = 0 },
@@ -172,6 +198,9 @@ function InCombatLockdown() return false end
 GameTooltip = { GetOwner = function() end }
 function GameTooltip_Hide() end
 LFGParentFrame = CreateFrame("Frame")
+LFGParentFramePortrait = CreateFrame("Button", nil, LFGParentFrame)
+LFGParentFramePortrait:SetFrameStrata("HIGH")
+LFGParentFramePortrait:SetFrameLevel(4)
 function LFGVanilla_ShowFrame(tab)
     LFGParentFrame:Show()
     LFGParentFrame.selectedTab = tab

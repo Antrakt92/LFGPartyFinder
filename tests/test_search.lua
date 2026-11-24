@@ -5,7 +5,7 @@ local requests, timers, visibleIDs, results = {}, {}, {}, {}
 local level, combat, clock = 32, false, 0
 local searchRejected, searchFailedInline = false, false
 local activities = {
-    [10] = { fullName = "Eligible dungeon", minLevelSuggestion = 20, maxLevelSuggestion = 60 },
+    [10] = { fullName = "Eligible dungeon", minLevelSuggestion = 20, maxLevelSuggestion = 60, maxNumPlayers = 5 },
     [20] = { fullName = "Higher dungeon", minLevelSuggestion = 33, maxLevelSuggestion = 60 },
     [30] = { fullName = "Lower dungeon", minLevelSuggestion = 20, maxLevelSuggestion = 32 },
 }
@@ -92,6 +92,10 @@ PartyFinderForeverDB = { manualDungeonSelection = "false", activities = { [10] =
 addon.InitializeSettings()
 assert(addon.db.manualDungeonSelection == nil and addon.db.activities[20] == true)
 assert(next(addon.db.activities) == 20 and next(addon.db.activities, 20) == nil)
+assert(addon.db.fitsMe == true, "Fits me defaults to enabled for an existing profile without the preference")
+addon.db.fitsMe = false
+addon.InitializeSettings()
+assert(addon.db.fitsMe == false, "Fits me remembers an explicitly disabled preference")
 
 selectDungeons(10, 20)
 result(1, "Original", 10)
@@ -395,16 +399,60 @@ fire("LFG_LIST_AVAILABILITY_UPDATE")
 assert(addon.Search() and #requests == sent + 1)
 receive(1)
 
-C_LFGList.GetSearchResultLeaderInfo = function() end
+local assignedRoles = {
+    [101] = { "DAMAGER", "TANK", "DAMAGER", "DAMAGER" },
+    [102] = { "DAMAGER", "TANK", "DAMAGER" },
+    [103] = { "TANK", "TANK", "DAMAGER", "DAMAGER" },
+    [104] = { "TANK", "DAMAGER", "DAMAGER", "NONE" },
+    [105] = { "TANK", "DAMAGER", "DAMAGER", "DAMAGER" },
+    [106] = { "TANK", "HEALER", "DAMAGER", "DAMAGER", "DAMAGER" },
+}
+local roleCounts = {
+    [101] = { TANK = 1, HEALER = 0, DAMAGER = 3, TANK_REMAINING = 0, HEALER_REMAINING = 1, DAMAGER_REMAINING = 0 },
+    [102] = { TANK = 1, HEALER = 0, DAMAGER = 2, TANK_REMAINING = 0, HEALER_REMAINING = 1, DAMAGER_REMAINING = 1 },
+    [103] = { TANK = 2, HEALER = 0, DAMAGER = 2, TANK_REMAINING = 0, HEALER_REMAINING = 1, DAMAGER_REMAINING = 0 },
+    [104] = { TANK = 1, HEALER = 0, DAMAGER = 3, TANK_REMAINING = 0, HEALER_REMAINING = 1, DAMAGER_REMAINING = 0 },
+    [105] = { TANK = 1, HEALER = 0, DAMAGER = 3, TANK_REMAINING = 0, DAMAGER_REMAINING = 0 },
+    [106] = { TANK = 1, HEALER = 1, DAMAGER = 3, TANK_REMAINING = 0, HEALER_REMAINING = 1, DAMAGER_REMAINING = 0 },
+}
+local originalPlayerInfo = C_LFGList.GetSearchResultPlayerInfo
+C_LFGList.GetSearchResultPlayerInfo = function(id, index)
+    if not assignedRoles[id] then return originalPlayerInfo(id, index) end
+    return { classFilename = "MAGE", assignedRole = assignedRoles[id][index], name = "Member " .. index }
+end
+C_LFGList.GetSearchResultLeaderInfo = function(id)
+    return { areaName = id == 102 and activities[10].fullName or "Elsewhere" }
+end
+C_LFGList.GetSearchResultMemberCounts = function(id) return roleCounts[id] end
+function GetGeneralPlaystyleString(style) return ({ "Learning", "Native relaxed label" })[style] or "" end
 for id = 101, 106 do
     result(id, "Group " .. id, 10)
-    results[id].numMembers = 2
+    results[id].numMembers = #assignedRoles[id]
 end
+results[101].generalPlaystyle, results[102].generalPlaystyle, results[105].generalPlaystyle = 2, 1, 99
 assert(addon.Search())
 receive(101, 102, 103, 104, 105, 106)
 for index, group in ipairs(addon.groups) do
-    assert(group.id == index + 100, "same-rank groups retain native result order")
+    assert(group.id == index + 100 and not group.rank, "a leader's location does not reorder or rank groups")
 end
+local first, second = addon.groups[1], addon.groups[2]
+assert(first.playstyle == "Native relaxed label" and second.playstyle == "Learning" and addon.groups[5].playstyle == nil)
+assert(#first.rosterSlots == 5 and first.rosterSlots[1] == first.members[1]
+    and first.rosterSlots[2].role == 2 and first.rosterSlots[2].vacant
+    and first.rosterSlots[3].name == "Member 1", "slots keep the defined role order and preserve member identity")
+assert(#second.rosterSlots == 5 and second.rosterSlots[2].vacant and second.rosterSlots[5].vacant
+    and second.rosterSlots[5].role == 3, "each confirmed open role keeps its own slot")
+for _, index in ipairs({ 3, 5, 6 }) do
+    assert(not addon.groups[index].rosterSlots, "incompatible role evidence cannot invent vacancies")
+end
+local partial = addon.groups[4]
+assert(partial.rosterSlots[5].role == 3 and not partial.rosterSlots[5].vacant and not partial.rosterSlots[5].class
+    and not partial.members[4].role and partial.members[4].class == "MAGE",
+    "complete native totals show an anonymous occupied slot without guessing the unknown member's role")
+local matches = addon.FilterGroups(addon.groups, {}, { tank = true, dps = true })
+assert(#matches == 1 and matches[1] == second, "Fits me matches any selected role with a native vacancy")
+matches = addon.FilterGroups(addon.groups, {}, { healer = true })
+assert(#matches == 4 and matches[#matches].id == 104, "a known-full group or unreadable vacancy is never counted as a fit")
 results[103].isDelisted = true
 fire("LFG_LIST_SEARCH_RESULT_UPDATED", 103)
 advance(0.2)
