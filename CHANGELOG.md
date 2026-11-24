@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1 - 24-Nov-2026 — Full-width Group Finder tabs
+
+- Players, Groups and Settings now share the full width of the tab row with equal spacing on both sides.
+
 ## 1.4.0 - 24-Nov-2026 — Group cards and search filters
 
 - Group cards show tank, healer and damage slots in a consistent order. Gray icons mark confirmed openings. The listing's playstyle appears when WoW provides it.
