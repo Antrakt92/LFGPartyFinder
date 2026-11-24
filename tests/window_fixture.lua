@@ -180,11 +180,11 @@ C_Timer = { After = function(delay, callback)
     deferred[#deferred + 1] = callback
 end }
 local activities = {
-    { fullName = "Scarlet Graveyard", minLevelSuggestion = 30, maxLevelSuggestion = 38, orderIndex = 0, maxNumPlayers = 5 },
-    { fullName = "Gnomeregan", minLevelSuggestion = 29, maxLevelSuggestion = 38, orderIndex = 0 },
-    { fullName = "Razorfen Kraul", minLevelSuggestion = 29, maxLevelSuggestion = 38, orderIndex = 0 },
-    { fullName = "Ragefire Chasm", minLevelSuggestion = 13, maxLevelSuggestion = 18, orderIndex = 0 },
-    { fullName = "Scholomance", minLevelSuggestion = 58, maxLevelSuggestion = 60, orderIndex = 0 },
+    { shortName = "", groupFinderActivityGroupID = 0, fullName = "Scarlet Graveyard", minLevelSuggestion = 30, maxLevelSuggestion = 38, orderIndex = 0, maxNumPlayers = 5 },
+    { shortName = "", groupFinderActivityGroupID = 0, fullName = "Gnomeregan", minLevelSuggestion = 29, maxLevelSuggestion = 38, orderIndex = 0 },
+    { shortName = "", groupFinderActivityGroupID = 0, fullName = "Razorfen Kraul", minLevelSuggestion = 29, maxLevelSuggestion = 38, orderIndex = 0 },
+    { shortName = "", groupFinderActivityGroupID = 0, fullName = "Ragefire Chasm", minLevelSuggestion = 13, maxLevelSuggestion = 18, orderIndex = 0 },
+    { shortName = "", groupFinderActivityGroupID = 0, fullName = "Scholomance", minLevelSuggestion = 58, maxLevelSuggestion = 60, orderIndex = 0 },
 }
 C_LFGList = {
     GetAvailableActivities = function() return { 3, 1, 4, 2, 5 } end,

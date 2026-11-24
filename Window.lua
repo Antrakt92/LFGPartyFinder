@@ -719,8 +719,8 @@ function addon.Refresh()
     parts.tabs.players:SetText(playerLabel)
     parts.tabs.groups:SetText(groupLabel)
 
-    local activities = addon.SelectedActivities()
-    parts.automaticDungeon:SetChecked(not addon.db.manualDungeonSelection)
+    local activities, automatic = addon.SelectedActivities()
+    parts.automaticDungeon:SetChecked(automatic)
     local label = activities[1] and activities[1].name or "Choose dungeons"
     if #activities > 1 then label = label .. " +" .. (#activities - 1) end
     parts.activity:OverrideText(label)
@@ -1497,16 +1497,17 @@ local function BuildContents()
         allLevels:SetSelectionIgnored()
         allLevels:SetResponse(MenuResponse.Close)
         menu:CreateDivider()
-        local entries = addon.Activities()
+        local entries, complete = addon.Activities()
         if #entries == 0 then menu:CreateTitle("No dungeons for this level"); return end
         menu:SetScrollMode(190)
+        local function selected(id)
+            if addon.db.manualDungeonSelection then return addon.db.activities[id] == true end
+            local selectedActivities, automatic = addon.SelectedActivities(entries, complete)
+            if not automatic then return addon.db.activities[id] == true end
+            return selectedActivities[1] ~= nil and id == selectedActivities[1].id
+        end
         for _, entry in ipairs(entries) do
             local range = entry.min > 0 and (entry.min .. "–" .. entry.max) or nil
-            local function selected(id)
-                if addon.db.manualDungeonSelection then return addon.db.activities[id] == true end
-                local automatic = addon.SelectedActivities(entries)[1]
-                return automatic ~= nil and id == automatic.id
-            end
             local label = range and (entry.name .. "  (" .. range .. ")") or entry.name
             local option = menu:CreateCheckbox(label, selected,
                 function(id)
@@ -1519,7 +1520,6 @@ local function BuildContents()
     end)
     parts.activity = activity
     local search = button(toolbar, "Search", toolbarButtonWidth, function()
-        if currentView == "settings" then SelectView("players") end
         parts.results:SetVerticalScroll(0)
         classPage = 1
         if addon.Search() then addon.openedBefore = true end

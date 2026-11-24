@@ -96,16 +96,26 @@ function addon.Activities()
             min, max = min or 0, max or 0
             local recommended = level and level > 0 and (min <= 0 or level >= min) and (max <= 0 or level <= max)
             if recommended or listed[id] or addon.db.showAllLevels then
-                local groupID = read(info.groupFinderActivityGroupID, "number") or 0
+                local groupID = read(info.groupFinderActivityGroupID, "number")
+                local order = read(info.orderIndex, "number")
+                local shortName = info.shortName
+                local hasShortName = canaccessvalue(shortName) and type(shortName) == "string"
+                if not groupID or not order or not hasShortName then complete = false end
+                groupID = groupID or 0
                 local group = groups[groupID]
                 if not group then
-                    local groupName, groupOrder
-                    if groupID ~= 0 then groupName, groupOrder = C_LFGList.GetActivityGroupInfo(groupID) end
-                    group = { id = groupID, name = read(groupName, "string") or "", order = read(groupOrder, "number") or 0 }
+                    local groupName, groupOrder = "", 0
+                    if groupID ~= 0 then
+                        groupName, groupOrder = C_LFGList.GetActivityGroupInfo(groupID)
+                        if not canaccessvalue(groupName) or type(groupName) ~= "string" then groupName = nil end
+                        groupOrder = read(groupOrder, "number")
+                        if not groupName or not groupOrder then complete = false end
+                    end
+                    group = { id = groupID, name = groupName or "", order = groupOrder or 0 }
                     groups[groupID] = group
                 end
-                entries[#entries + 1] = { id = id, name = read(info.shortName, "string") or name, fullName = name,
-                    min = min, max = max, order = read(info.orderIndex, "number") or 0, group = group,
+                entries[#entries + 1] = { id = id, name = hasShortName and shortName ~= "" and shortName or name,
+                    fullName = name, min = min, max = max, order = order or 0, group = group,
                     recommended = recommended, capacity = read(info.maxNumPlayers, "number") }
             end
         else
@@ -149,42 +159,47 @@ local function ComesBeforePreviousDefault(a, b)
     return a.id < b.id
 end
 
-function addon.SelectedActivities(available)
-    available = available or addon.Activities()
-    if #available == 0 then return {} end
+function addon.SelectedActivities(available, complete)
+    if not available then available, complete = addon.Activities() end
     local saved = addon.db.activities
-    if addon.db.manualDungeonSelection == nil then
-        -- Older versions saved the auto-selected entry as a regular checkbox.
-        local legacyFirst, previousFirst
-        for _, entry in ipairs(available) do
-            if ComesBeforeOriginalDefault(entry, legacyFirst) then legacyFirst = entry end
-            if ComesBeforePreviousDefault(entry, previousFirst) then previousFirst = entry end
-        end
+    local manual = addon.db.manualDungeonSelection
+    if manual == nil then
         local only = next(saved)
-        addon.db.manualDungeonSelection = only ~= nil
-            and (next(saved, only) ~= nil or (only ~= legacyFirst.id and only ~= previousFirst.id))
-        if only and not addon.db.manualDungeonSelection then saved[only] = nil end
-    end
-    if not addon.db.manualDungeonSelection then
-        for _, entry in ipairs(available) do
-            if entry.recommended then return { entry } end
+        -- Retain any visible saved choices while the catalog is incomplete.
+        manual = only ~= nil
+        if complete and #available > 0 then
+            -- Older versions saved the auto-selected entry as a regular checkbox.
+            local legacyFirst, previousFirst
+            for _, entry in ipairs(available) do
+                if ComesBeforeOriginalDefault(entry, legacyFirst) then legacyFirst = entry end
+                if ComesBeforePreviousDefault(entry, previousFirst) then previousFirst = entry end
+            end
+            manual = only ~= nil
+                and (next(saved, only) ~= nil or (only ~= legacyFirst.id and only ~= previousFirst.id))
+            addon.db.manualDungeonSelection = manual
+            if only and not manual then saved[only] = nil end
         end
-        return {}
+    end
+    if not manual then
+        for _, entry in ipairs(available) do
+            if entry.recommended then return { entry }, true end
+        end
+        return {}, true
     end
     local result = {}
     for _, entry in ipairs(available) do
         if saved[entry.id] == true then result[#result + 1] = entry end
     end
-    return result
+    return result, false
 end
 
 function addon.SetAutomaticDungeonSelection(enabled)
-    local available = addon.Activities()
-    local before = addon.SelectedActivities(available)
-    if enabled == (not addon.db.manualDungeonSelection) then return end
+    local available, complete = addon.Activities()
+    local before = addon.SelectedActivities(available, complete)
+    if addon.db.manualDungeonSelection == (not enabled) then return end
     addon.db.manualDungeonSelection = not enabled
 
-    local after = addon.SelectedActivities(available)
+    local after = addon.SelectedActivities(available, complete)
     if #before ~= #after then addon.SelectionChanged(); return end
     for index, entry in ipairs(before) do
         if entry.id ~= after[index].id then addon.SelectionChanged(); return end
@@ -193,8 +208,8 @@ function addon.SetAutomaticDungeonSelection(enabled)
 end
 
 function addon.ToggleActivity(id)
-    local selected = addon.SelectedActivities()
-    if not addon.db.manualDungeonSelection then
+    local selected, automatic = addon.SelectedActivities()
+    if automatic then
         addon.db.activities = {}
         if selected[1] then addon.db.activities[selected[1].id] = true end
     end
@@ -249,8 +264,8 @@ local function ReconcileQuerySelection()
     end
     local recovered = selectionUncertain == true
     selectionUncertain = nil
-    local selected = {}
-    for _, entry in ipairs(addon.SelectedActivities(available)) do
+    local selected, selectedActivities = {}, addon.SelectedActivities(available, complete)
+    for _, entry in ipairs(selectedActivities) do
         if not query[entry.id] then addon.SelectionChanged(); return false end
         selected[entry.id] = true
     end
@@ -515,8 +530,7 @@ local function ResultSnapshot()
         if not id then
             complete = false
         elseif not seen[id] then
-            local order = #ids + 1
-            ids[order], seen[id] = id, order
+            ids[#ids + 1], seen[id] = id, true
         end
     end
     return { ids = ids, seen = seen }, complete
@@ -611,8 +625,7 @@ local function PruneReportedResults()
     local ids, seen = {}, {}
     for _, id in ipairs(activeResults.ids) do
         if filtered.seen[id] then
-            local order = #ids + 1
-            ids[order], seen[id] = id, order
+            ids[#ids + 1], seen[id] = id, true
         end
     end
     if #ids == #activeResults.ids then return end

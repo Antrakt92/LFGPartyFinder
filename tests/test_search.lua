@@ -5,9 +5,9 @@ local requests, timers, visibleIDs, results = {}, {}, {}, {}
 local level, combat, clock = 32, false, 0
 local searchRejected, searchFailedInline = false, false
 local activities = {
-    [10] = { fullName = "Eligible dungeon", minLevelSuggestion = 20, maxLevelSuggestion = 60, maxNumPlayers = 5 },
-    [20] = { fullName = "Higher dungeon", minLevelSuggestion = 33, maxLevelSuggestion = 60 },
-    [30] = { fullName = "Lower dungeon", minLevelSuggestion = 20, maxLevelSuggestion = 32 },
+    [10] = { shortName = "", groupFinderActivityGroupID = 0, orderIndex = 0, fullName = "Eligible dungeon", minLevelSuggestion = 20, maxLevelSuggestion = 60, maxNumPlayers = 5 },
+    [20] = { shortName = "", groupFinderActivityGroupID = 0, orderIndex = 0, fullName = "Higher dungeon", minLevelSuggestion = 33, maxLevelSuggestion = 60 },
+    [30] = { shortName = "", groupFinderActivityGroupID = 0, orderIndex = 0, fullName = "Lower dungeon", minLevelSuggestion = 20, maxLevelSuggestion = 32 },
 }
 
 function canaccessvalue() return true end
@@ -633,5 +633,59 @@ assert(completeInactiveCatalog, "a stable absent listing is a complete catalog s
 fire("LFG_LIST_ACTIVE_ENTRY_UPDATE")
 assert(#addon.players == 0 and addon.status == "Selection changed. Click Search.",
     "a confirmed inactive listing removes its off-level activity from the query")
+
+local fullCatalog = C_LFGList.GetAvailableActivities
+C_LFGList.GetAvailableActivities = function() return { 30, restrictedActivity } end
+PartyFinderForeverDB = { activities = { [30] = true } }
+addon.InitializeSettings()
+local partialActivities, partialComplete = addon.Activities()
+local legacySelection, automatic = addon.SelectedActivities(partialActivities, partialComplete)
+assert(not partialComplete and legacySelection[1].id == 30 and not automatic)
+assert(addon.db.activities[30] and addon.db.manualDungeonSelection == nil,
+    "an incomplete catalog must not erase a legacy manual dungeon that temporarily looks like the default")
+C_LFGList.GetAvailableActivities = fullCatalog
+legacySelection, automatic = addon.SelectedActivities()
+assert(legacySelection[1].id == 30 and not automatic and addon.db.manualDungeonSelection == true)
+
+PartyFinderForeverDB = { activities = { [10] = true } }
+addon.InitializeSettings()
+C_LFGList.GetAvailableActivities = function() return { 30, restrictedActivity } end
+legacySelection, automatic = addon.SelectedActivities()
+assert(#legacySelection == 0 and not automatic and addon.db.manualDungeonSelection == nil and addon.db.activities[10],
+    "a hidden legacy automatic dungeon must wait for the complete catalog")
+C_LFGList.GetAvailableActivities = fullCatalog
+legacySelection, automatic = addon.SelectedActivities()
+assert(legacySelection[1].id == 10 and automatic and not addon.db.manualDungeonSelection
+    and not next(addon.db.activities), "a legacy automatic choice migrates once the full catalog is available")
+
+PartyFinderForeverDB = { activities = { [10] = true } }
+addon.InitializeSettings()
+C_LFGList.GetAvailableActivities = function() return { 30, restrictedActivity } end
+addon.ToggleActivity(30)
+assert(addon.db.manualDungeonSelection == true and addon.db.activities[10] and addon.db.activities[30],
+    "an explicit dungeon click must keep legacy choices hidden during a partial read")
+C_LFGList.GetAvailableActivities = fullCatalog
+
+local function assertUnresolvedOrdering()
+    PartyFinderForeverDB = { activities = { [30] = true } }
+    addon.InitializeSettings()
+    local entries, complete = addon.Activities()
+    assert(#entries == 2 and not complete)
+    local picked, automatic = addon.SelectedActivities(entries, complete)
+    assert(picked[1].id == 30 and not automatic and addon.db.manualDungeonSelection == nil and addon.db.activities[30],
+        "display fallbacks for incomplete ordering fields must not commit legacy preferences")
+end
+for _, key in ipairs({ "shortName", "orderIndex", "groupFinderActivityGroupID" }) do
+    local old = activities[10][key]
+    activities[10][key] = restrictedActivity
+    assertUnresolvedOrdering()
+    activities[10][key] = old
+end
+activities[10].groupFinderActivityGroupID = 99
+C_LFGList.GetActivityGroupInfo = function() end
+assertUnresolvedOrdering()
+C_LFGList.GetActivityGroupInfo = function() return "Dungeons", 0 end
+local _, completeGroupData = addon.Activities()
+assert(completeGroupData, "a populated group and permitted empty short names produce a complete catalog")
 
 print("Passed search ownership, late results, queued changes, refresh isolation, DB normalization and retry bounds")
