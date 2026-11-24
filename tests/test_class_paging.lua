@@ -79,4 +79,25 @@ assertPage(1, 2, width, height, spacing)
 panel:SetWidth(474)
 panel.scripts.OnSizeChanged(panel)
 assertPage(1, 2, width + 5, height, spacing + 5)
+local nativeFont = GameFontHighlightSmall
+GameFontHighlightSmall = { GetFont = function() return "Fonts\\ARKai_T.ttf", 15 end }
+addon.players[3] = {
+    class = addon.classOrder[1], count = 1, id = 3,
+    name = "Player 3", target = "Player 3", level = 40, roles = { healer = true },
+}
+addon.Refresh()
+local grownCard = findLabel("FontString", "Player 3").parent
+assert(grownCard.height > height, "15px native font needs taller player cards")
+assert(grownCard.name.TOPLEFT[2] - grownCard.detail.TOPLEFT[2] >= 15)
+assert(grownCard.detail.TOPLEFT[2] - grownCard.dungeon.TOPLEFT[2] >= 15)
+assert(grownCard.dungeon.TOPLEFT[2] - grownCard.zone.TOPLEFT[2] >= 15)
+assert(grownCard.height + grownCard.zone.TOPLEFT[2] > 15, "the last line has room above the card's edge")
+assert(grownCard.action.height == grownCard.height - 2 and grownCard.action:IsVisible())
+assert(grownCard.TOPLEFT[2] == -grownCard.height - 2, "the lower player card begins after the taller first card")
+assert(grownCard.parent.parent.parent.height == grownCard.height - grownCard.TOPLEFT[2],
+    "tall player rows contribute their full height to the scroll range")
+GameFontHighlightSmall = nativeFont
+addon.Refresh()
+assert(grownCard.height == height and grownCard.TOPLEFT[2] == -height - 2,
+    "the pooled row and its layout return to the default size")
 print("Passed fixed card and header sizes on full and partial pages, including pooled cards")

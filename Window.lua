@@ -13,7 +13,7 @@ local classPage, classPageCount = 1, 1
 local parts = {}
 local playerGap = 2
 local cardHeight, actionWidth = 64, 25
-local playerRowHeight = cardHeight + 2
+local playerRowGap = 2
 local groupCardHeight, groupGap, visibleMemberSlots = 78, 4, 5
 local memberIconSize, memberStep = 23, 27
 local columnsPerPage, groupColumns = 4, 2
@@ -439,7 +439,12 @@ local function BuildCard(parent, width, group)
     return card
 end
 
-local function PaintCard(card, entry, compact, index, groupFontPadding)
+local function MeasuredTextWidth(label, fallback)
+    local width = read(label:GetUnboundedStringWidth(), "number")
+    return width and width > 0 and width or fallback
+end
+
+local function PaintCard(card, entry, compact, index, fontPadding)
     card.entry = entry
     local color = NameColor(entry)
     card.name:SetTextColor(color.r, color.g, color.b)
@@ -448,8 +453,9 @@ local function PaintCard(card, entry, compact, index, groupFontPadding)
     local textWidth = math.max(1, width - actionWidth - 11)
     local extra = entry.listedDungeons and #entry.listedDungeons - 1 or 0
     card.dungeon:SetText(entry.activity and entry.activity.name or "Unknown dungeon")
-    card.dungeon:SetWidth(math.max(1, textWidth - (extra > 0 and 20 or 0)))
     card.extraDungeons:SetText(extra > 0 and ("+" .. extra) or "")
+    local badgeSpace = extra > 0 and (MeasuredTextWidth(card.extraDungeons, 16) + 4) or 0
+    card.dungeon:SetWidth(math.max(1, textWidth - badgeSpace))
     card.zone:SetText(entry.area or "Unknown zone")
     card.zone:SetWidth(textWidth)
     local tint = index % 2 == 0 and 0.012 or 0
@@ -459,23 +465,28 @@ local function PaintCard(card, entry, compact, index, groupFontPadding)
     local nameLeft = isNearby and 15 or 6
     card.name:SetPoint("TOPLEFT", nameLeft, -7)
     card.commentMark:SetShown(entry.comment ~= nil)
-    local nameWidth = width - actionWidth - nameLeft - (entry.comment and 15 or 4)
+    local commentSpace = entry.comment and (MeasuredTextWidth(card.commentMark, 7) + 4) or 0
+    local titleRight = actionWidth + 4 + commentSpace
+    local nameWidth = width - titleRight - nameLeft
     if card.playstyle then
         card.playstyle:SetText(entry.playstyle or "")
         card.playstyle:SetShown(entry.playstyle ~= nil)
         if entry.playstyle then
             local widthLimit = textWidth * 0.43
-            card.playstyle:SetWidth(widthLimit)
-            local measuredWidth = read(card.playstyle:GetStringWidth(), "number")
-            local styleWidth = math.min(measuredWidth and measuredWidth > 0 and measuredWidth or 64, widthLimit)
+            local styleWidth = math.min(MeasuredTextWidth(card.playstyle, 64), widthLimit)
             card.playstyle:SetWidth(styleWidth)
-            card.playstyle:SetPoint("TOPRIGHT", -actionWidth - (entry.comment and 15 or 4), -7)
+            card.playstyle:SetPoint("TOPRIGHT", -titleRight, -7)
             nameWidth = nameWidth - styleWidth - 6
         end
     end
     card.name:SetWidth(math.max(1, nameWidth))
     card:SetBackdropBorderColor(0.66, 0.56, 0.29, isNearby and 1 or 0)
     if compact then
+        card.detail:SetPoint("TOPLEFT", 6, -22 - fontPadding)
+        local dungeonY = -36 - 2 * fontPadding
+        card.dungeon:SetPoint("TOPLEFT", 6, dungeonY)
+        card.extraDungeons:SetPoint("TOPRIGHT", -actionWidth - 5, dungeonY)
+        card.zone:SetPoint("TOPLEFT", 6, -49 - 3 * fontPadding)
         local detail = entry.count > 1 and (entry.count .. " players") or (entry.level and tostring(entry.level) or "")
         card.detail:SetText(detail)
         card.detail:SetWidth(math.max(1, width - actionWidth - 52))
@@ -486,15 +497,15 @@ local function PaintCard(card, entry, compact, index, groupFontPadding)
             icon:SetShown(visible)
             if visible then
                 icon:ClearAllPoints()
-                icon:SetPoint("TOPLEFT", width - actionWidth - 44 + 14 * shown, -20)
+                icon:SetPoint("TOPLEFT", width - actionWidth - 44 + 14 * shown, -20 - fontPadding)
                 shown = shown + 1
             end
         end
     else
-        local dungeonY = -22 - groupFontPadding
+        local dungeonY = -22 - fontPadding
         card.dungeon:SetPoint("TOPLEFT", 6, dungeonY)
         card.extraDungeons:SetPoint("TOPRIGHT", -actionWidth - 5, dungeonY)
-        card.zone:SetPoint("TOPLEFT", 6, -35 - 2 * groupFontPadding)
+        card.zone:SetPoint("TOPLEFT", 6, -35 - 2 * fontPadding)
         local members = entry.rosterSlots or entry.members or {}
         local memberCount = math.min(#members, visibleMemberSlots)
         local overflow = entry.count - visibleMemberSlots
@@ -510,7 +521,7 @@ local function PaintCard(card, entry, compact, index, groupFontPadding)
             local classColor = not vacant and addon.knownClasses[class] and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
             if member then
                 slot:SetSize(size, size + 5)
-                slot:SetPoint("TOPLEFT", left + (slotIndex - 1) * step + (step - size) / 2, -47 - 3 * groupFontPadding)
+                slot:SetPoint("TOPLEFT", left + (slotIndex - 1) * step + (step - size) / 2, -47 - 3 * fontPadding)
             end
             if role then
                 slot.roleIcon:SetSize(size, size)
@@ -549,10 +560,10 @@ end
 local function RenderResults()
     local count, height = 0, 0
     local nearbyCount, columnsShown = 0, 0
+    local fontHeight = GameFontHighlightSmall and select(2, GameFontHighlightSmall:GetFont())
+    local fontPadding = math.max(0, (read(fontHeight, "number") or 10) - 10)
     if currentView == "groups" then
         local groups = parts.visibleGroups or {}
-        local fontHeight = GameFontHighlightSmall and select(2, GameFontHighlightSmall:GetFont())
-        local fontPadding = math.max(0, (read(fontHeight, "number") or 10) - 10)
         local rowHeight = groupCardHeight + 3 * fontPadding
         count = #groups
         if count > 0 then height = math.ceil(count / groupColumns) * (rowHeight + groupGap) - groupGap end
@@ -577,6 +588,8 @@ local function RenderResults()
     for index = count + 1, #parts.groupCards do parts.groupCards[index]:Hide() end
 
     if currentView == "players" then
+        local playerHeight = cardHeight + 4 * fontPadding
+        local playerRowHeight = playerHeight + playerRowGap
         local availableWidth = LayoutResults(playersInset, playersInset, playersTop)
         local columnWidth = (availableWidth - playerGap * (columnsPerPage - 1)) / columnsPerPage
         local columnStep = columnWidth + playerGap
@@ -613,7 +626,7 @@ local function RenderResults()
                 column.heading:ClearAllPoints()
                 column.heading:SetPoint("TOPLEFT", x, 0)
                 column.count:SetText(size)
-                height = math.max(height, (size - 1) * playerRowHeight + cardHeight)
+                height = math.max(height, (size - 1) * playerRowHeight + playerHeight)
             end
             if size > 0 then columnsShown = columnsShown + 1 end
             nearbyCount = nearbyCount + #near
@@ -621,10 +634,11 @@ local function RenderResults()
                 local entry = near[index] or far[index - #near]
                 local card = column.cards[index]
                 if not card then card = BuildCard(column, columnWidth); column.cards[index] = card end
-                card:SetWidth(columnWidth)
+                card:SetSize(columnWidth, playerHeight)
+                card.action:SetHeight(playerHeight - 2)
                 card:ClearAllPoints()
                 card:SetPoint("TOPLEFT", 0, -(index - 1) * playerRowHeight)
-                PaintCard(card, entry, true, index)
+                PaintCard(card, entry, true, index, fontPadding)
                 card:Show()
             end
             for index = size + 1, #column.cards do column.cards[index]:Hide() end

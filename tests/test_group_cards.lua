@@ -131,6 +131,20 @@ assert(detailed.memberOverflow:GetText() == "+1", "overflow leaves a compact cou
 assert(detailed.playstyle:GetText() == "Learning" and detailed.playstyle:IsVisible() and not anonymous.playstyle:IsVisible())
 assert(detailed.name.TOPLEFT[1] + detailed.name.width < detailed.width + detailed.playstyle.TOPRIGHT[1] - detailed.playstyle.width
     and detailed.playstyle.TOPRIGHT[1] < detailed.commentMark.TOPRIGHT[1], "title, playstyle, and comment each have their own space")
+local measureComment, measureExtra = detailed.commentMark.GetUnboundedStringWidth, detailed.extraDungeons.GetUnboundedStringWidth
+function detailed.commentMark:GetUnboundedStringWidth() return 14 end
+function detailed.extraDungeons:GetUnboundedStringWidth() return 28 end
+for index = 3, 11 do entry.listedDungeons[index] = { name = "Dungeon " .. index } end
+GameFontHighlightSmall = { GetFont = function() return "Fonts\\ARKai_T.ttf", 15 end }
+addon.Refresh()
+local commentLeft = detailed.width + detailed.commentMark.TOPRIGHT[1] - 14
+local extraLeft = detailed.width + detailed.extraDungeons.TOPRIGHT[1] - 28
+assert(detailed.width + detailed.playstyle.TOPRIGHT[1] < commentLeft,
+    "a wide localized comment marker stays clear of the playstyle")
+assert(detailed.extraDungeons:GetText() == "+10" and detailed.dungeon.TOPLEFT[1] + detailed.dungeon.width < extraLeft,
+    "the dungeon name keeps a gap before a wide extra activity count")
+detailed.commentMark.GetUnboundedStringWidth, detailed.extraDungeons.GetUnboundedStringWidth = measureComment, measureExtra
+GameFontHighlightSmall = nativeFont
 entry.count, entry.members, entry.listedDungeons, entry.rosterSlots = count, members, dungeons, rosterSlots
 entry.playstyle, entry.comment = nil, nil
 addon.Refresh()
