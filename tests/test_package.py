@@ -105,6 +105,43 @@ class PackageTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(archive.read_bytes(), existing_archive)
 
+    def test_publishes_archive_only_after_write_finishes(self):
+        script = ROOT / "scripts/package.py"
+        original_open = Path.open
+
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            observed = []
+
+            class ObservedDestination:
+                def __init__(self, stream):
+                    self.stream = stream
+
+                def __enter__(self):
+                    self.stream.__enter__()
+                    return self
+
+                def __exit__(self, *args):
+                    return self.stream.__exit__(*args)
+
+                def write(self, data):
+                    self.stream.write(data[:64])
+                    self.stream.flush()
+                    observed.append(list(out.glob("*.zip")))
+                    self.stream.write(data[64:])
+
+            def observe_write(path, mode="r", *args, **kwargs):
+                stream = original_open(path, mode, *args, **kwargs)
+                return ObservedDestination(stream) if mode == "xb" else stream
+
+            with patch.object(sys, "argv", [str(script), "--out", directory]), patch.object(Path, "open", observe_write):
+                runpy.run_path(str(script), run_name="__main__")
+
+            self.assertEqual(observed, [[]], "the final path must stay absent during partial writes")
+            archive, = out.iterdir()
+            with ZipFile(archive) as packaged:
+                self.assertIsNone(packaged.testzip())
+
     def test_failed_write_does_not_block_retry(self):
         script = ROOT / "scripts/package.py"
         original_open = Path.open

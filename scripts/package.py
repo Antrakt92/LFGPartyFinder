@@ -2,8 +2,10 @@
 
 import argparse
 from io import BytesIO
+import os
 import re
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,18 +62,19 @@ def main():
         ):
             raise RuntimeError("archive does not match the source inventory")
     contents = output.getvalue()
-    try:
-        destination = archive.open("xb")
-    except FileExistsError:
-        if archive.read_bytes() != contents:
-            parser.error(f"{archive} already exists with different contents. Use a separate --out directory.")
-    else:
+    with TemporaryDirectory(prefix=".package-", dir=args.out) as temporary:
+        staged = Path(temporary) / archive.name
+        with staged.open("xb") as destination:
+            destination.write(contents)
         try:
-            with destination:
-                destination.write(contents)
-        except (OSError, KeyboardInterrupt):
-            archive.unlink(missing_ok=True)
-            raise
+            # Publish a complete file without replacing an existing version.
+            if os.name == "nt":
+                staged.rename(archive)
+            else:
+                os.link(staged, archive)
+        except FileExistsError:
+            if archive.read_bytes() != contents:
+                parser.error(f"{archive} already exists with different contents. Use a separate --out directory.")
     print(archive)
 
 
