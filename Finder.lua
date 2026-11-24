@@ -71,6 +71,10 @@ function addon.Activities()
     local rawActiveEntry = not addon.db.showAllLevels and C_LFGList.GetActiveEntryInfo()
     local activeEntry = read(rawActiveEntry, "table")
     local complete = level ~= nil and level > 0 and canaccessvalue(rawActiveEntry)
+    if not addon.db.showAllLevels then
+        local hasActiveEntry = read(C_LFGList.HasActiveEntryInfo(), "boolean")
+        if hasActiveEntry == nil or (hasActiveEntry and not activeEntry) then complete = false end
+    end
     local activeIDs = activeEntry and read(activeEntry.activityIDs, "table")
     if activeEntry and not activeIDs then complete = false end
     local listed = {}

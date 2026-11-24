@@ -56,6 +56,7 @@ C_LFGList = {
     GetAvailableActivities = function() return { 10, 20, 30 } end,
     GetActivityInfoTable = function(id) return activities[id] end,
     GetActiveEntryInfo = function() end,
+    HasActiveEntryInfo = function() return false end,
     GetFilteredSearchResults = function() return #visibleIDs, visibleIDs end,
     GetSearchResultInfo = function(id) return results[id] end,
     GetSearchResultPlayerInfo = function() return { classFilename = "MAGE" } end,
@@ -556,5 +557,33 @@ assert(#addon.players == 0 and addon.status == "Selection changed. Click Search.
     "a clean removal of the off-level activity invalidates owned results")
 addon.OpenWhisper(staleEntry)
 assert(not whispered)
+
+local hasActiveEntry = true
+C_LFGList.HasActiveEntryInfo = function() return hasActiveEntry end
+activeActivityIDs = { 20 }
+selectDungeons(20)
+assert(addon.Search())
+receive(4)
+C_LFGList.GetActiveEntryInfo = function() end
+fire("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+assert(addon.players[1].id == 4 and not addon.players[1].target,
+    "a known active listing with missing details cannot remove its off-level activity")
+C_LFGList.GetActiveEntryInfo = function() return { activityIDs = activeActivityIDs } end
+hasActiveEntry = restrictedActivity
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(addon.players[1].id == 4 and not addon.players[1].target,
+    "an unreadable active-state flag leaves the selection unverified")
+hasActiveEntry = true
+before = #requests
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(addon.players[1].id == 4 and addon.players[1].target and #requests == before,
+    "readable active details restore the owned query without another request")
+hasActiveEntry = false
+C_LFGList.GetActiveEntryInfo = function() end
+local _, completeInactiveCatalog = addon.Activities()
+assert(completeInactiveCatalog, "a stable absent listing is a complete catalog snapshot")
+fire("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+assert(#addon.players == 0 and addon.status == "Selection changed. Click Search.",
+    "a confirmed inactive listing removes its off-level activity from the query")
 
 print("Passed search ownership, late results, queued changes, refresh isolation, DB normalization and retry bounds")
