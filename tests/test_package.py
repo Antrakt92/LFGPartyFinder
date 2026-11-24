@@ -5,8 +5,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from io import BytesIO, StringIO
 from pathlib import Path
 from unittest.mock import patch
+from zipfile import ZipFile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,6 +65,27 @@ class PackageTests(unittest.TestCase):
             return ["--previous-changelog", str(previous)]
 
         self.assert_rejects_package(truncate_history, "must retain the previous release history")
+
+    def test_archive_uses_the_metadata_bytes_that_were_validated(self):
+        script = ROOT / "scripts/package.py"
+        original_open = Path.open
+        metadata = {ROOT / name: (ROOT / name).read_bytes() for name in ("PartyFinderForever.toc", "CHANGELOG.md")}
+        opened = set()
+
+        def changing_metadata(path, mode="r", *args, **kwargs):
+            if path not in metadata:
+                return original_open(path, mode, *args, **kwargs)
+            data = b"Changed after validation\n" if path in opened else metadata[path]
+            opened.add(path)
+            return BytesIO(data) if mode == "rb" else StringIO(data.decode("utf-8"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(sys, "argv", [str(script), "--out", directory]), patch.object(Path, "open", changing_metadata):
+                runpy.run_path(str(script), run_name="__main__")
+            archive, = Path(directory).glob("*.zip")
+            with ZipFile(archive) as zipped:
+                for path, expected in metadata.items():
+                    self.assertEqual(zipped.read(f"PartyFinderForever/{path.name}"), expected)
 
     def test_preserves_existing_versioned_archive(self):
         toc = (ROOT / "PartyFinderForever.toc").read_text(encoding="utf-8")
