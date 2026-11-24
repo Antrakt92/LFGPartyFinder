@@ -13,13 +13,28 @@ LFGVanilla_ToggleFrame(1) -- Blizzard TOGGLEGROUPFINDER binding.
 assert(LFGParentFrame:IsShown() and visibleButton("Players"), "normal Group Finder toggle opens Party Finder")
 local players = visibleButton("Players")
 local addonPanel = players.parent.parent
-assert(players.TOPLEFT[1] >= 58, "the first tab clears the native portrait")
-assert(LFGParentFramePortrait:GetFrameStrata() == addonPanel:GetFrameStrata()
-    and LFGParentFramePortrait:GetFrameLevel() > addonPanel:GetFrameLevel(), "the native portrait renders over the panel")
+assert(players.TOPLEFT[1] == 12, "the tabs span the panel even when a native portrait exists")
+assert(LFGParentFramePortrait:GetFrameStrata() == "HIGH" and LFGParentFramePortrait:GetFrameLevel() == 4,
+    "the native portrait keeps its own layer")
 LFGVanilla_ToggleFrame(1)
 assert(not LFGParentFrame:IsShown() and not visibleButton("Players"), "same key closes the native window")
 assert(LFGParentFramePortrait:GetFrameStrata() == "HIGH" and LFGParentFramePortrait:GetFrameLevel() == 4,
-    "closing the embedded window restores the native portrait")
+    "closing the embedded window preserves the native portrait")
+
+-- Some client layouts keep the native eye hidden, with the full header available.
+LFGParentFramePortrait:Hide()
+LFGVanilla_ToggleFrame(1)
+local groups, settings = visibleButton("Groups"), visibleButton("Settings")
+assert(players.TOPLEFT[1] == 12, "a hidden portrait leaves no blank space before the tabs")
+assert(players.width == groups.width and groups.width == settings.width)
+assert(groups.TOPLEFT[1] - (players.TOPLEFT[1] + players.width) == 8)
+assert(math.abs(settings.TOPLEFT[1] + settings.width - (454 - 12)) < 0.01)
+addonPanel:SetWidth(484)
+addonPanel.scripts.OnSizeChanged(addonPanel)
+assert(math.abs(settings.TOPLEFT[1] + settings.width - (484 - 12)) < 0.01, "tabs follow the panel width")
+addonPanel:SetWidth(454)
+LFGVanilla_ToggleFrame(1)
+LFGParentFramePortrait:Show()
 
 LFGVanilla_ToggleFrame(3)
 assert(LFGParentFrame:IsShown() and not visibleButton("Players") and LFGParentFrame.selectedTab == 3)

@@ -1496,11 +1496,22 @@ local function BuildContents()
     header:SetPoint("TOPRIGHT")
     header:SetHeight(playersTop)
     parts.header = header
-    for index, view in ipairs({{"players", "Players"}, {"groups", "Groups"}, {"settings", "Settings"}}) do
-        local tab = button(header, view[2], 122, function() SelectView(view[1]) end)
-        tab:SetPoint("TOPLEFT", 60 + (index - 1) * 130, -12)
-        parts.tabs[view[1]] = tab
+    local views = {{"players", "Players"}, {"groups", "Groups"}, {"settings", "Settings"}}
+    for _, view in ipairs(views) do
+        parts.tabs[view[1]] = button(header, view[2], 1, function() SelectView(view[1]) end)
     end
+    local function LayoutTabs()
+        local inset, gap = 12, 8
+        local width = read(window:GetWidth(), "number")
+        if not width or width <= 0 then width = 454 end
+        local tabWidth = math.max(1, (width - 2 * inset - gap * (#views - 1)) / #views)
+        for index, view in ipairs(views) do
+            local tab = parts.tabs[view[1]]
+            tab:SetWidth(tabWidth)
+            tab:SetPoint("TOPLEFT", inset + (index - 1) * (tabWidth + gap), -12)
+        end
+    end
+    LayoutTabs()
     local toolbar = CreateFrame("Frame", nil, header)
     toolbar:SetAllPoints()
     parts.toolbar = toolbar
@@ -1748,6 +1759,7 @@ local function BuildContents()
     parts.listingControls = BuildListingControls(toolbar)
     search:SetPoint("RIGHT", parts.createListing, "LEFT", -8, 0)
     window:HookScript("OnSizeChanged", function()
+        LayoutTabs()
         if scroll:IsVisible() then RenderResults() end
     end)
 end
@@ -1775,23 +1787,7 @@ local function AddNativeLauncher()
 
     local nativeTabs = { parent.ListingTab, parent.BrowsingTab, parent.WhoListingTab }
     local selectionAlpha = {}
-    local portrait = _G.LFGParentFramePortrait
-    local portraitStrata, portraitLevel
-    local function raisePortrait()
-        if not portrait or portraitStrata then return end
-        portraitStrata = portrait:GetFrameStrata()
-        portraitLevel = portrait:GetFrameLevel()
-        portrait:SetFrameStrata(window:GetFrameStrata())
-        portrait:SetFrameLevel(window:GetFrameLevel() + 1)
-    end
-    local function restorePortrait()
-        if not portraitStrata then return end
-        portrait:SetFrameStrata(portraitStrata)
-        portrait:SetFrameLevel(portraitLevel)
-        portraitStrata, portraitLevel = nil, nil
-    end
     window:SetScript("OnShow", function()
-        raisePortrait()
         for _, tab in ipairs(nativeTabs) do
             local texture = tab.SelectedTexture
             local alpha = texture and read(texture:GetAlpha(), "number")
@@ -1803,7 +1799,6 @@ local function AddNativeLauncher()
         nativeLauncher:SetChecked(true)
     end)
     window:SetScript("OnHide", function()
-        restorePortrait()
         viewRevision = viewRevision + 1
         if inlineComposer then addon.EndNativeDraft() end
         for texture, alpha in pairs(selectionAlpha) do texture:SetAlpha(alpha) end

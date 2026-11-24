@@ -13,9 +13,10 @@ for _, frame in ipairs(frames) do
     if frame.template == "LFGOptionsButton" then gear = frame end
 end
 assert(gear and gear.width == 28)
+local tabWidth = (454 - 2 * 12 - 2 * 8) / 3
 for index, label in ipairs({ "Players", "Groups", "Settings" }) do
     local tab = assert(find("Button", label))
-    assert(tab.width == 122 and tab.TOPLEFT[1] == 60 + (index - 1) * 130)
+    assert(tab.width == tabWidth and tab.TOPLEFT[1] == 12 + (index - 1) * (tabWidth + 8))
     assert(tab.TOPLEFT[1] + tab.width <= 454, "tabs fit the stock Group Finder")
 end
 local roleButtons = {}
