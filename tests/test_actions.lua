@@ -167,6 +167,13 @@ addon.Act(solo)
 assertAction("invite", "Solo")
 assertAction("send", "Solo", "Invited you")
 
+grouped, leader, assistant, partyCount, now = false, false, false, 0, 31
+C_LFGList.HasActiveEntryInfo = function() return true end
+C_LFGListRoles.GetRoles = function() error("roles are temporarily unreadable") end
+addon.Act(solo)
+assertAction("invite", "Solo")
+assertAction("send", "Solo", "4 spots left.")
+
 local prefix = string.rep("a", 254)
 assert(addon.RenderTemplate(prefix .. "€", {}) == prefix, "cuts at the 255-byte limit without breaking UTF-8")
 assert(addon.RenderTemplate("x %unknown%  %class%", { class = "Mage" }) == "x %unknown% Mage")

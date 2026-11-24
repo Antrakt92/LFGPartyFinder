@@ -236,6 +236,16 @@ finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
 assert(find("Button", "Unlist") == submit and submit.enabled and not addon.CreateListing())
 assert(friendly:GetChecked() and not friendly.enabled, "active listing displays the published flag")
 assert(greenStatus(), "active listing shows a pulsing indicator")
+active = false
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
+local publish = C_LFGList.CreateListing
+C_LFGList.CreateListing = function() return true end
+assert(addon.CreateListing())
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
+assert(select(3, addon.ListingState()), "an unowned inactive update does not release older ambiguity")
+C_LFGList.CreateListing = publish
+active = true
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
 rejectRemoval = true
 submit.scripts.OnClick(submit)
 assert(listingError and removals == 1 and submit.enabled and greenStatus())
@@ -254,6 +264,13 @@ addon.db.activities = { [1] = true, [3] = true }
 addon.SelectionChanged()
 assert(find("Button", "List Me") == submit and submit.enabled)
 assert(redStatus(), "removal restores the red indicator")
+publish = C_LFGList.CreateListing
+C_LFGList.CreateListing = function() return true end
+assert(addon.CreateListing())
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
+assert(not select(3, addon.ListingState()) and submit.enabled,
+    "the next refused creation does not inherit ambiguity after confirmed removal")
+C_LFGList.CreateListing = publish
 table.remove(deferred, 1)()
 local menuItems = {}
 local function menuItem(data)

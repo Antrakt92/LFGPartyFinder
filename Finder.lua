@@ -928,7 +928,7 @@ local function defaultRoster(capacity, count)
         if count == 0 and unit == "player" then
             local active = read(C_LFGList.HasActiveEntryInfo(), "boolean")
             local chosen
-            if active == true then chosen = read(C_LFGListRoles.GetRoles(), "table") end
+            if active == true then chosen = addon.NativeListingRoles() end
             if active == false then chosen = addon.ListingRoles() end
             if chosen then
                 role = nil
@@ -1164,7 +1164,12 @@ events:SetScript("OnEvent", function(_, event, ...)
         if not addon.db then return end
         if event == "LFG_LIST_ACTIVE_ENTRY_UPDATE" then
             local active = read(C_LFGList.HasActiveEntryInfo(), "boolean")
-            if listingPending and listingPending.active == active then listingPending = nil end
+            if listingPending and listingPending.active == active then
+                -- An active update could be a belated create. Start trusting
+                -- untagged failures again only after tracking its removal.
+                if listingPending.kind == "remove" then uncertainCreate = nil end
+                listingPending = nil
+            end
             if active == true and addon.EndNativeDraft then addon.EndNativeDraft() end
         end
         local matched, recovered = ReconcileQuerySelection()
