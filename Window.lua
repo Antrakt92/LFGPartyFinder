@@ -707,6 +707,16 @@ local function RefreshNativePostPending()
     end
 end
 
+local function SameActivityMenuEntries(previous, current)
+    if #previous ~= #current then return false end
+    for index, entry in ipairs(previous) do
+        local updated = current[index]
+        if entry.id ~= updated.id or entry.name ~= updated.name or entry.min ~= updated.min or entry.max ~= updated.max
+            or entry.recommended ~= updated.recommended then return false end
+    end
+    return true
+end
+
 function addon.Refresh()
     RefreshNativePostPending()
     if not window or not window:IsVisible() then return end
@@ -758,7 +768,13 @@ function addon.Refresh()
     parts.tabs.players:SetText(playerLabel)
     parts.tabs.groups:SetText(groupLabel)
 
-    local activities, automatic = addon.SelectedActivities()
+    local available, complete = addon.Activities()
+    local activities, automatic = addon.SelectedActivities(available, complete)
+    local menuEntries = parts.activityMenuEntries
+    if menuEntries and parts.activity:IsMenuOpen()
+        and (parts.activityMenuComplete ~= complete or not SameActivityMenuEntries(menuEntries, available)) then
+        parts.activity:CloseMenu()
+    end
     parts.automaticDungeon:SetChecked(automatic)
     local label = activities[1] and activities[1].name or "Choose dungeons"
     if #activities > 1 then label = label .. " +" .. (#activities - 1) end
@@ -1538,6 +1554,8 @@ local function BuildContents()
         local function showAllLevels() return addon.db.showAllLevels end
         local allLevels = menu:CreateCheckbox("Show all levels", showAllLevels, function()
             local before = addon.SelectedActivities()
+            -- The response closes this menu before it is rebuilt with the new scope.
+            parts.activityMenuEntries = nil
             addon.db.showAllLevels = not addon.db.showAllLevels
             local after = addon.SelectedActivities()
             local ids = {}
@@ -1565,12 +1583,12 @@ local function BuildContents()
         allLevels:SetResponse(MenuResponse.Close)
         menu:CreateDivider()
         local entries, complete = addon.Activities()
+        parts.activityMenuEntries, parts.activityMenuComplete = entries, complete
         if #entries == 0 then menu:CreateTitle("No dungeons for this level"); return end
         menu:SetScrollMode(190)
+        local selectedActivities, automatic = addon.SelectedActivities(entries, complete)
         local function selected(id)
-            if addon.db.manualDungeonSelection then return addon.db.activities[id] == true end
-            local selectedActivities, automatic = addon.SelectedActivities(entries, complete)
-            if not automatic then return addon.db.activities[id] == true end
+            if addon.db.manualDungeonSelection or not automatic then return addon.db.activities[id] == true end
             return selectedActivities[1] ~= nil and id == selectedActivities[1].id
         end
         for _, entry in ipairs(entries) do

@@ -208,7 +208,13 @@ function addon.SetAutomaticDungeonSelection(enabled)
 end
 
 function addon.ToggleActivity(id)
-    local selected, automatic = addon.SelectedActivities()
+    local available, complete = addon.Activities()
+    local visible
+    for _, entry in ipairs(available) do
+        if entry.id == id then visible = true; break end
+    end
+    if not visible then return end
+    local selected, automatic = addon.SelectedActivities(available, complete)
     if automatic then
         addon.db.activities = {}
         if selected[1] then addon.db.activities[selected[1].id] = true end

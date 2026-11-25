@@ -1,6 +1,6 @@
 -- Run with Lua 5.1 and pass the addon directory as the first argument.
 local fixturePath = (arg[0]:match("^(.*[/\\])") or "") .. "window_fixture.lua"
-local addon, frames, deferred = assert(loadfile(fixturePath))(arg[1] or ".")
+local addon, frames, deferred, finderEvents = assert(loadfile(fixturePath))(arg[1] or ".")
 
 local dropdown, languages
 for _, frame in ipairs(frames) do
@@ -110,4 +110,41 @@ dropdown:PickOption(1)
 languages:OpenMenu()
 table.remove(deferred, 1)()
 assert(languages:IsMenuOpen() and not dropdown:IsMenuOpen(), "a deferred menu must not replace the newly opened menu")
+languages:CloseMenu()
+
+addon.db.activities = {}
+addon.db.showAllLevels = false
+addon.SetAutomaticDungeonSelection(true)
+dropdown:OpenMenu()
+assertOrder({ 1, 2, 3 })
+local oldGnomeregan = dropdown.options[3]
+dropdown.menuOffset = 1
+addon.Refresh()
+assert(dropdown:IsMenuOpen() and dropdown.menuOffset == 1, "a normal refresh preserves the open menu's scroll offset")
+UnitLevel = function() return 58 end
+finderEvents.scripts.OnEvent(finderEvents, "PLAYER_LEVEL_UP")
+assert(dropdown.label == "Scholomance")
+assert(not dropdown:IsMenuOpen(), "a level change dismisses the stale dungeon rows")
+oldGnomeregan.click(oldGnomeregan.id)
+assert(not addon.db.manualDungeonSelection and not next(addon.db.activities),
+    "a stale dungeon click cannot save an unavailable activity or turn off automatic selection")
+dropdown:OpenMenu()
+assertOrder({ 5 })
+assert(dropdown.options[2].selected(5), "reopening shows the current recommended dungeon")
+dropdown:CloseMenu()
+
+local hasActiveEntry = C_LFGList.HasActiveEntryInfo
+C_LFGList.HasActiveEntryInfo = function() return true end
+PartyFinderForeverDB = { activities = { [5] = true } }
+addon.InitializeSettings()
+dropdown:OpenMenu()
+assertOrder({ 5 })
+assert(not addon.db.manualDungeonSelection and addon.db.activities[5] and dropdown.options[2].selected(5))
+C_LFGList.HasActiveEntryInfo = hasActiveEntry
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_AVAILABILITY_UPDATE")
+assert(not dropdown:IsMenuOpen() and addon.db.manualDungeonSelection == false and not next(addon.db.activities),
+    "when catalog recovery migrates the saved default, the open menu drops its legacy selection data")
+dropdown:OpenMenu()
+assertOrder({ 5 })
+assert(dropdown.options[2].selected(5))
 print("Passed activity menu order, in-place dungeon checks, level changes and cancellation")
