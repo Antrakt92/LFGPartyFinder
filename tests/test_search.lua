@@ -298,6 +298,59 @@ receive()
 advance(1)
 assert(#requests == before + 2 and #addon.players == 0 and not addon.status)
 
+local function parkOpeningRetry(canRetry, onInterrupted)
+    selectDungeons(10)
+    local sent = #requests
+    assert(addon.Search(canRetry, onInterrupted))
+    receive()
+    assert(addon.status == "Checking for listings…")
+    combat = true
+    advance(1)
+    assert(#requests == sent + 1 and addon.status == "Search will resume after combat.")
+    combat = false
+    return sent
+end
+
+local parked = parkOpeningRetry(function() return true end)
+fire("PLAYER_REGEN_ENABLED")
+advance(0)
+assert(#requests == parked + 2, "combat must not swallow the first-open settle retry")
+receive()
+advance(1)
+assert(#requests == parked + 2 and not addon.status, "the resumed search remains the single retry")
+
+local stillOpen = true
+parked = parkOpeningRetry(function() return stillOpen end)
+stillOpen = false
+fire("PLAYER_REGEN_ENABLED")
+advance(0)
+assert(#requests == parked + 1, "a closed view cancels the postponed retry")
+
+parked = parkOpeningRetry(function() return true end)
+selectDungeons(20)
+assert(addon.Search())
+fire("PLAYER_REGEN_ENABLED")
+advance(0)
+assert(#requests == parked + 2 and requests[#requests].ids[1] == 20,
+    "a newer explicit search supersedes the postponed retry")
+receive(4)
+selectDungeons(10)
+
+local parkedInterruptions = 0
+parked = parkOpeningRetry(function() return true end, function() parkedInterruptions = parkedInterruptions + 1 end)
+searchFailedInline = true
+fire("PLAYER_REGEN_ENABLED")
+advance(0)
+searchFailedInline = false
+assert(#requests == parked + 2 and parkedInterruptions == 1, "an in-call failure interrupts a postponed retry only once")
+
+parked = parkOpeningRetry(function() return true end, function() parkedInterruptions = parkedInterruptions + 1 end)
+C_LFGList.Search(2, 0, 0, nil, false, nil, {30})
+fire("PLAYER_REGEN_ENABLED")
+receive(2)
+advance(1)
+assert(#requests == parked + 2 and parkedInterruptions == 2, "a native search cancels the postponed opening retry")
+
 local function assertInterruptedOpeningSearch(stage)
     local interruptions = 0
     assert(addon.Search(function() return true end, function() interruptions = interruptions + 1 end))

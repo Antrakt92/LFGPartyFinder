@@ -286,7 +286,8 @@ local function DispatchQueuedSearch()
             return
         end
         queuedSearch = nil
-        if not request.canRetry or request.canRetry() then
+        local canDispatch = request.canDispatch or request.canRetry
+        if not canDispatch or canDispatch() then
             local accepted = addon.Search(request.canRetry, request.onInterrupted)
             if not accepted and request.onInterrupted then request.onInterrupted() end
         else
@@ -380,8 +381,10 @@ if type(C_LFGList.Search) == "function" then
         local overlaps = pending ~= nil or foreignSearch ~= nil
         local token = { remainingCompletions = overlaps and 2 or 1 }
         foreignSearch = token
-        if pending or openingRetry or next(activeQuery) then
-            local interrupted = pending and not pending.discard and pending or openingRetry
+        local deferredRetry = queuedSearch and queuedSearch.canDispatch and queuedSearch
+        if deferredRetry then queuedSearch = nil end
+        if pending or openingRetry or deferredRetry or next(activeQuery) then
+            local interrupted = pending and not pending.discard and pending or openingRetry or deferredRetry
             pending, openingRetry = nil, nil
             activeResults = {}
             for _, entry in ipairs(addon.players or {}) do entry.target = nil end
@@ -660,9 +663,16 @@ local function FinishSearch(request)
             updated = activeResults
             updatedPlayers, updatedGroups = CollectResults(request.activities, updated)
         end
-        if #updatedPlayers == 0 and #updatedGroups == 0 and request.canRetry() and not InCombatLockdown() then
-            local accepted = addon.Search(nil, request.onInterrupted)
-            if not accepted and request.onInterrupted then request.onInterrupted() end
+        if #updatedPlayers == 0 and #updatedGroups == 0 and request.canRetry() then
+            if InCombatLockdown() then
+                -- Keep the visibility check for dispatch. This request is already the single retry.
+                queuedSearch = { canDispatch = request.canRetry, onInterrupted = request.onInterrupted }
+                addon.status = "Search will resume after combat."
+                changed()
+            else
+                local accepted = addon.Search(nil, request.onInterrupted)
+                if not accepted and request.onInterrupted then request.onInterrupted() end
+            end
         else
             activeResults = updated
             ShowResults(updatedPlayers, updatedGroups)
@@ -1138,7 +1148,8 @@ events:SetScript("OnEvent", function(_, event, ...)
             request.failed = true
             addon.status = request.discard and "Selection changed. Click Search." or "Search failed. Try again."
             pending = nil
-            if not request.discard and request.onInterrupted then request.onInterrupted() end
+            -- The dispatch caller handles a refusal returned from the native search call.
+            if not request.discard and not callingSearch and request.onInterrupted then request.onInterrupted() end
             changed()
             DispatchQueuedSearch()
         end
