@@ -784,10 +784,12 @@ function addon.CanManageListing(grouped)
         read(UnitIsGroupLeader("player", LE_PARTY_CATEGORY_HOME), "boolean") == true)
 end
 
-function addon.CanCreateListing(activities)
+function addon.CanCreateListing(activities, ownPending)
     if InCombatLockdown() then return nil, "Finish combat before listing." end
     local grouped, active, waiting = addon.ListingState()
-    if waiting or active ~= false then return nil, "A listing is already active or being created." end
+    if (waiting and waiting ~= ownPending) or active ~= false then
+        return nil, "A listing is already active or being created."
+    end
     if not addon.CanManageListing(grouped) then
         return nil, "Only the party leader can list the group."
     end
@@ -844,7 +846,7 @@ function addon.ListingFailureRevision()
     return listingFailureRevision
 end
 
-function addon.ObserveNativeListingPost(previousFailureRevision, kind)
+function addon.ObserveNativeListingPost(previousFailureRevision, kind, onRefused)
     kind = kind or "create"
     if kind == "create" and previousFailureRevision and previousFailureRevision ~= listingFailureRevision then
         return false, listingRefusedMessage
@@ -854,7 +856,7 @@ function addon.ObserveNativeListingPost(previousFailureRevision, kind)
     if active == desiredActive or waiting then return true end
     -- The stock Post handler just ran. Share its wait with direct addon listing
     -- actions so another click cannot clear the text before the outcome.
-    local request = { kind = kind, active = desiredActive }
+    local request = { kind = kind, active = desiredActive, onRefused = onRefused }
     listingPending = request
     ScheduleListingTimeout(request)
     changed()
@@ -1127,6 +1129,7 @@ events:SetScript("OnEvent", function(_, event, ...)
             listingPending = nil
             request.failed = true
             if not request.dispatching then
+                if request.onRefused then request.onRefused() end
                 changed()
                 UIErrorsFrame:AddMessage(listingRefusedMessage, 1, 0.32, 0.24)
             end

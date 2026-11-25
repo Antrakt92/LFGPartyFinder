@@ -735,6 +735,89 @@ finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
 active = false
 finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
 
+local function startInlinePost()
+    assert(not active)
+    openComment()
+    assertInline()
+    local typed = "A comment for the refused listing."
+    nativeComment = typed
+    commentChanged(edit, true)
+    clickNativePost()
+    assert(select(3, addon.ListingState()), "the stock Post awaits a server response")
+    assertInline()
+    assert(not actualPost.enabled and not addon.CreateListing(),
+        "the current draft stays visible without allowing a second Post")
+    return typed
+end
+
+local function rejectedInlinePost(abandonFirst, replaceDraft)
+    local typed = startInlinePost()
+    if abandonFirst then
+        find("Button", "Players").scripts.OnClick()
+        assertRestored()
+        assert(nativeComment == typed, "leaving Settings preserves the draft while its outcome is unknown")
+    end
+    if replaceDraft then nativeComment = "New stock draft" end
+    finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
+    assert(not select(3, addon.ListingState()) and addon.db.listingComment == typed)
+    if not abandonFirst then
+        assertInline()
+        assert(nativeComment == typed, "a refused open draft remains available for retry")
+        find("Button", "Players").scripts.OnClick()
+    end
+    assertRestored()
+    if replaceDraft then
+        assert(nativeComment == "New stock draft" and #nativeActivities == 2,
+            "a refused old attempt must not discard newer native edits")
+        LFGListingFrame:SetAllActivities(false)
+        LFGListingFrame:ClearCategorySelection()
+        LFGListingFrame:SetDirty(false)
+        nativeComment = ""
+    else
+        assert(nativeComment == "" and nativeCategory == nil and #nativeActivities == 0,
+            "an abandoned draft releases borrowed native state after its refusal")
+    end
+end
+rejectedInlinePost(false)
+rejectedInlinePost(true)
+rejectedInlinePost(true, true)
+
+local combatDraftText = startInlinePost()
+combat = true
+loader.scripts.OnEvent(loader, "PLAYER_REGEN_DISABLED")
+assertRestored()
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
+assert(nativeComment == combatDraftText, "a refusal during combat defers native state restoration")
+combat = false
+loader.scripts.OnEvent(loader, "PLAYER_REGEN_ENABLED")
+assertRestored()
+assert(nativeComment == "" and nativeCategory == nil and #nativeActivities == 0)
+find("Button", "Players").scripts.OnClick()
+
+startInlinePost()
+addon.SetAutomaticDungeonSelection(true)
+assertRestored()
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
+assert(nativeComment == "" and nativeCategory == nil and #nativeActivities == 0,
+    "a selection change does not leave the refused draft attached")
+addon.SetAutomaticDungeonSelection(false)
+find("Button", "Players").scripts.OnClick()
+
+local soloDraft = startInlinePost()
+grouped, leader = true, false
+finderEvents.scripts.OnEvent(finderEvents, "GROUP_ROSTER_UPDATE")
+assertRestored()
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
+assert(nativeComment == soloDraft and #nativeActivities == 2,
+    "losing the ability to list detaches the editor and protects native state in the new group")
+grouped = false
+LFGListingFrame:SetAllActivities(false)
+LFGListingFrame:ClearCategorySelection()
+LFGListingFrame:SetDirty(false)
+nativeComment = ""
+find("Button", "Players").scripts.OnClick()
+addon.db.listingComment = savedDraft
+
 openComment()
 assertInline()
 assert(focused and find("FontString", savedDraft))
@@ -847,4 +930,17 @@ local team = assert(find("FontString", "Team")).parent
 team.scripts.OnEnter(team)
 assert(tooltip[1] == "3 players · Leader: Survival")
 assert(team.commentMark:IsVisible() and tooltip[#tooltip] == "Comment: Bring water")
+
+LFGListingFrame:SetAllActivities(false)
+LFGListingFrame:ClearCategorySelection()
+LFGListingFrame:SetDirty(false)
+nativeComment = ""
+local unconfirmedText = startInlinePost()
+deferred[#deferred]()
+assertRestored()
+assert(not select(3, addon.ListingState()) and nativeComment == unconfirmedText,
+    "a timed-out draft leaves the native state alone while the outcome remains uncertain")
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ENTRY_CREATION_FAILED")
+assert(nativeComment == unconfirmedText, "an unattributed late failure cannot erase the timed-out draft")
+
 print("Passed direct listing, saved preferences, native composer, and comment save, reuse and removal")

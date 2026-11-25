@@ -971,6 +971,14 @@ local function RestoreNativeDraft(draft)
     listing:SetDirty(false)
 end
 
+local function ReleaseNativeDraft(draft)
+    if InCombatLockdown() then
+        deferredNativeDraft = draft
+    else
+        RestoreNativeDraft(draft)
+    end
+end
+
 function addon.EndNativeDraft()
     local draft = nativeDraft
     nativeDraft = nil
@@ -984,11 +992,7 @@ function addon.EndNativeDraft()
     end
     if draft then
         draft.edit:ClearFocus()
-        if InCombatLockdown() then
-            deferredNativeDraft = draft
-        else
-            RestoreNativeDraft(draft)
-        end
+        ReleaseNativeDraft(draft)
     end
 end
 
@@ -1086,11 +1090,22 @@ local function TrackNativeListingPost(listing)
         local current = nativeDraft
         if current and current.listing ~= listing then current = nil end
         if kind == nil and (hasPreClick or not current) then return end
-        local attempted = current and current.postAttempted
-        if current then current.postAttempted = true end
-        local ok, reason = addon.ObserveNativeListingPost(revision, kind)
-        if not ok and current then
-            current.postAttempted = attempted
+        local onRefused
+        if current then
+            local attempted = current.postAttempted
+            current.postAttempted = true
+            onRefused = function()
+                current.postAttempted, current.onRefused = attempted, nil
+                -- An already detached editor has no later close to undo its draft.
+                if not nativeDraft and (not deferredNativeDraft or deferredNativeDraft == current) then
+                    ReleaseNativeDraft(current)
+                end
+            end
+            current.onRefused = onRefused
+        end
+        local ok, reason = addon.ObserveNativeListingPost(revision, kind, onRefused)
+        if not ok and onRefused then
+            onRefused()
             ListingError(reason)
         end
     end)
@@ -1252,13 +1267,15 @@ end
 
 RefreshCommentEditor = function(activities)
     if inlineComposer and nativeDraft then
-        local allowed, reason = addon.CanCreateListing(activities)
+        local grouped, _, waiting = addon.ListingState()
+        local ownPending = waiting and waiting.onRefused and waiting.onRefused == nativeDraft.onRefused and waiting
+        local allowed, reason = addon.CanCreateListing(activities, ownPending)
         local ids = nativeDraft.data.activityIDs
         local changed = #activities ~= #ids
         for index, activity in ipairs(activities) do
             if activity.id ~= ids[index] then changed = true; break end
         end
-        if allowed and not changed and addon.ListingState() == nativeDraft.grouped
+        if allowed and (not nativeDraft.onRefused or ownPending) and not changed and grouped == nativeDraft.grouped
             and NativeDraftMatches(nativeDraft.listing, nativeDraft.data)
             and NativeDraftRolesMatch(nativeDraft.roles) then return end
         addon.EndNativeDraft()
