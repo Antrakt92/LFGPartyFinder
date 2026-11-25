@@ -66,6 +66,19 @@ class PackageTests(unittest.TestCase):
 
         self.assert_rejects_package(truncate_history, "must retain the previous release history")
 
+    def test_rejects_duplicate_release_heading_even_with_full_history(self):
+        def duplicate_release(source):
+            changelog = source / "CHANGELOG.md"
+            contents = changelog.read_text(encoding="utf-8")
+            previous = source / "previous.md"
+            previous.write_text(contents, encoding="utf-8")
+            first_release = contents.index("## ")
+            duplicate = contents[:contents.index("\n", first_release)] + "\n\n"
+            changelog.write_text(duplicate + contents[first_release:], encoding="utf-8")
+            return ["--previous-changelog", str(previous)]
+
+        self.assert_rejects_package(duplicate_release, "duplicate release version")
+
     def test_archive_uses_the_metadata_bytes_that_were_validated(self):
         script = ROOT / "scripts/package.py"
         original_open = Path.open

@@ -13,6 +13,7 @@ ADDON = "PartyFinderForever"
 TOC = f"{ADDON}.toc"
 RUNTIME = ("Data.lua", "Finder.lua", "Window.lua")
 FILES = (TOC, *RUNTIME, "CHANGELOG.md", "LICENSE")
+VERSION = r"(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)){2}"
 
 
 def main():
@@ -33,7 +34,7 @@ def main():
     if (
         interfaces != ["16001"]
         or len(versions) != 1
-        or not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)){2}", versions[0])
+        or not re.fullmatch(VERSION, versions[0])
     ):
         parser.error("TOC must declare exactly one release version and Forever interface")
     version = versions[0]
@@ -44,6 +45,9 @@ def main():
     heading = next((line for line in changelog.splitlines() if line.startswith("## ")), "")
     if not heading.startswith(f"## {version} - "):
         parser.error("latest changelog version must match the TOC")
+    history_versions = re.findall(rf"^## ({VERSION}) - ", changelog, re.MULTILINE)
+    if len(history_versions) != len(set(history_versions)):
+        parser.error("changelog contains a duplicate release version")
     if args.previous_changelog:
         previous = args.previous_changelog.read_text(encoding="utf-8")
         first_release = re.search(r"^## ", previous, re.MULTILINE)
