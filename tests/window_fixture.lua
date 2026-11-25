@@ -203,10 +203,11 @@ LFGParentFramePortrait:SetFrameStrata("HIGH")
 LFGParentFramePortrait:SetFrameLevel(4)
 function LFGVanilla_ShowFrame(tab)
     LFGParentFrame:Show()
-    LFGParentFrame.selectedTab = tab
+    tab = tab or LFGParentFrame.selectedTab
+    LFGParentFrame.selectedTab = (tab == 2 or tab == 3) and tab or 1
 end
 function LFGVanilla_ToggleFrame(tab)
-    if LFGParentFrame:IsShown() and LFGParentFrame.selectedTab == tab then
+    if LFGParentFrame:IsShown() and (not tab or LFGParentFrame.selectedTab == tab) then
         LFGParentFrame:Hide()
     else
         LFGVanilla_ShowFrame(tab)

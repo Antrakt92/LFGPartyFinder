@@ -1870,7 +1870,10 @@ local function AddNativeLauncher()
         if window:IsShown() then window:Hide() end
     end)
     hooksecurefunc("LFGVanilla_ShowFrame", function(tab)
-        if (tab == 2 or tab == 3) and window:IsShown() then window:Hide() end
+        -- The queue icon opens the existing native view without a tab, and
+        -- the Friends panel can pass the parent frame. Numeric tab 1 is the
+        -- path used inside the Group Finder key's toggle below.
+        if (tab == nil or tab == parent or tab == 2 or tab == 3) and window:IsShown() then window:Hide() end
     end)
     -- TOGGLEGROUPFINDER passes tab 1. Run after Blizzard’s toggle so the
     -- native window still opens and closes through its own panel manager.

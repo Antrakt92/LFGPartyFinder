@@ -50,10 +50,29 @@ assert(LFGParentFrame:IsShown() and not visibleButton("Players") and LFGParentFr
 
 LFGVanilla_ToggleFrame(1)
 assert(visibleButton("Players"))
+LFGVanilla_ShowFrame() -- The minimap queue icon's View Group action.
+assert(LFGParentFrame:IsShown() and not visibleButton("Players") and LFGParentFrame.selectedTab == 1,
+    "View Group must expose the stock panel if Party Finder is open")
+LFGVanilla_ToggleFrame(1)
+LFGVanilla_ToggleFrame(1)
+assert(visibleButton("Players"))
+LFGParentFrame.selectedTab = 3
+LFGVanilla_ShowFrame(LFGParentFrame) -- Stock ShowWhoPanel's already-open path.
+assert(LFGParentFrame:IsShown() and not visibleButton("Players"),
+    "the Friends panel's native navigation must not be covered by Party Finder")
+LFGVanilla_ToggleFrame(1)
+
+LFGVanilla_ToggleFrame(1)
+assert(visibleButton("Players"))
 -- The native listing event changes its own backing tab while Party Finder remains visible.
 LFGParentFrame.selectedTab = 2
 LFGVanilla_ToggleFrame(1)
 assert(not LFGParentFrame:IsShown() and not visibleButton("Players"), "native tab drift still closes with one key press")
+
+LFGVanilla_ToggleFrame()
+assert(LFGParentFrame:IsShown() and not visibleButton("Players"), "the minimap toggle retains its native entry point")
+LFGVanilla_ToggleFrame()
+assert(not LFGParentFrame:IsShown())
 
 LFGParentFrame:Hide()
 addon.openedBefore = nil
