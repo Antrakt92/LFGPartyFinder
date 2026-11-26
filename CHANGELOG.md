@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.2 - 26-Nov-2026 — Search and listing fixes
+
+- The first search can retry once after combat if it returned no players or groups and the search is still open.
+- The dungeon picker refreshes when eligibility changes, so older entries can no longer change your selection.
+- If WoW rejects a listing, you can retry from the same form with your comment intact.
+- The built-in Group Finder opens correctly from the queue status icon and Friends list while the addon tab is visible.
+- Release archives reject duplicate version entries in the changelog.
+
 ## 1.4.1 - 24-Nov-2026 — Full-width Group Finder tabs
 
 - Players, Groups and Settings now share the full width of the tab row with equal spacing on both sides.
