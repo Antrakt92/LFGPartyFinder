@@ -50,6 +50,10 @@ function addon.ActivityZones(activity, faction)
         add(C_Map.GetAreaInfo(25), 2) -- Blackrock Mountain
     elseif mapID == 90 and faction == "Horde" then
         add(C_Map.GetAreaInfo(35), 3) -- Scooty's transporter in Booty Bay
+    elseif mapID == 2959 then
+        add(C_Map.GetAreaInfo(279), 1) -- Dalaran in the open world
+        add(C_Map.GetAreaInfo(16558), 1) -- Dalaran inside the instance
+        add(C_Map.GetAreaInfo(267), 3) -- Hillsbrad Foothills approach
     end
     return zones
 end
