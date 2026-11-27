@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.3 - 27-Nov-2026 — City of Dalaran proximity
+
+- When searching for City of Dalaran, players in Dalaran and Hillsbrad Foothills now appear as nearby. Players in Dalaran itself get the highest priority.
+
 ## 1.4.2 - 26-Nov-2026 — Search and listing fixes
 
 - The first search can retry once after combat if it returned no players or groups and the search is still open.
