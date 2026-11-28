@@ -740,6 +740,49 @@ C_LFGList.GetActivityGroupInfo = function() return "Dungeons", 0 end
 local _, completeGroupData = addon.Activities()
 assert(completeGroupData, "a populated group and permitted empty short names produce a complete catalog")
 
+hasActiveEntry = true
+C_LFGList.GetActiveEntryInfo = function() return { activityIDs = {20} } end
+selectDungeons(10, 20)
+assert(addon.Search() and #requests[#requests].ids == 2)
+receive(1, 4)
+local previousPlayers, sentBeforeCatalogLoss = addon.players, #requests
+C_LFGList.GetActiveEntryInfo = function() end
+assert(not addon.Search() and #requests == sentBeforeCatalogLoss,
+    "a refresh must not drop a selected off-level dungeon while the listing loads")
+assert(addon.players == previousPlayers and not addon.players[1].target and not addon.players[2].target
+    and addon.status:find("Dungeon information is loading", 1, true))
+C_LFGList.GetActiveEntryInfo = function() return { activityIDs = {20} } end
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(#requests == sentBeforeCatalogLoss and addon.players[1].target and addon.players[2].target
+    and not addon.status, "complete catalog recovery restores the same owned search without a new request")
+assert(addon.Search() and #requests[#requests].ids == 2)
+receive(1, 4)
+
+local activityInfo, offLevelReads = C_LFGList.GetActivityInfoTable, 0
+C_LFGList.GetActivityInfoTable = function(id)
+    if id == 20 then
+        offLevelReads = offLevelReads + 1
+        if offLevelReads == 2 then return end
+    end
+    return activityInfo(id)
+end
+sentBeforeCatalogLoss = #requests
+assert(not addon.Search() and #requests == sentBeforeCatalogLoss,
+    "a selected activity becoming unavailable before dispatch must not shrink the request")
+C_LFGList.GetActivityInfoTable = activityInfo
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+
+C_LFGList.Search(2, 0, 0, nil, false, nil, {30})
+receive(2)
+C_LFGList.GetActiveEntryInfo = function() end
+assert(not addon.Search())
+C_LFGList.GetActiveEntryInfo = function() return { activityIDs = {20} } end
+fire("LFG_LIST_AVAILABILITY_UPDATE")
+assert(not addon.players[1].target and addon.status:find("Showing previous results", 1, true),
+    "catalog recovery must not promote previous rows from a foreign search")
+hasActiveEntry = false
+C_LFGList.GetActiveEntryInfo = function() end
+
 selectDungeons(10)
 result(108, "Changing roster", 10)
 results[108].numMembers = 3

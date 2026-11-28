@@ -182,15 +182,15 @@ function addon.SelectedActivities(available, complete)
     end
     if not manual then
         for _, entry in ipairs(available) do
-            if entry.recommended then return { entry }, true end
+            if entry.recommended then return { entry }, true, complete end
         end
-        return {}, true
+        return {}, true, complete
     end
     local result = {}
     for _, entry in ipairs(available) do
         if saved[entry.id] == true then result[#result + 1] = entry end
     end
-    return result, false
+    return result, false, complete
 end
 
 function addon.SetAutomaticDungeonSelection(enabled)
@@ -257,14 +257,25 @@ function addon.SelectionChanged()
     changed()
 end
 
+local catalogLoadingStatus = "Dungeon information is loading. Click Search to refresh."
+
+local function PreviousResultsStatus()
+    local hasPreviousResults = #(addon.players or {}) > 0 or #(addon.groups or {}) > 0
+    return hasPreviousResults and "Showing previous results. Click Search to refresh." or "Click Search to refresh."
+end
+
+local function MarkSelectionUncertain()
+    selectionUncertain = true
+    for _, entry in ipairs(addon.players or {}) do entry.target = nil end
+    for _, entry in ipairs(addon.groups or {}) do entry.target = nil end
+end
+
 local function ReconcileQuerySelection()
     local query = pending and not pending.discard and pending.activities or activeQuery
     if not next(query) then return true end
     local available, complete = addon.Activities()
     if not complete then
-        selectionUncertain = true
-        for _, entry in ipairs(addon.players or {}) do entry.target = nil end
-        for _, entry in ipairs(addon.groups or {}) do entry.target = nil end
+        MarkSelectionUncertain()
         changed()
         return false
     end
@@ -277,6 +288,9 @@ local function ReconcileQuerySelection()
     end
     for id in pairs(query) do
         if not selected[id] then addon.SelectionChanged(); return false end
+    end
+    if recovered and addon.status == catalogLoadingStatus then
+        if activeResults.ids then addon.status = nil else addon.status = PreviousResultsStatus() end
     end
     return true, recovered
 end
@@ -349,7 +363,15 @@ function addon.Search(canRetry, onInterrupted)
         end
         return true
     end
-    local ids, activities = QuerySnapshot(addon.SelectedActivities())
+    local selected, _, complete = addon.SelectedActivities()
+    local ids, activities
+    if complete then ids, activities = QuerySnapshot(selected) end
+    if not ids or #ids ~= #selected then
+        MarkSelectionUncertain()
+        addon.status = catalogLoadingStatus
+        changed()
+        return false
+    end
     if #ids == 0 then
         ResetSearchResults("Choose a dungeon to search.")
         changed()
@@ -395,9 +417,7 @@ if type(C_LFGList.Search) == "function" then
             activeResults = {}
             for _, entry in ipairs(addon.players or {}) do entry.target = nil end
             for _, entry in ipairs(addon.groups or {}) do entry.target = nil end
-            local hasPreviousResults = #(addon.players or {}) > 0 or #(addon.groups or {}) > 0
-            addon.status = hasPreviousResults and "Showing previous results. Click Search to refresh."
-                or "Click Search to refresh."
+            addon.status = PreviousResultsStatus()
             if interrupted and interrupted.onInterrupted then interrupted.onInterrupted() end
             C_Timer.After(0, changed)
         end
