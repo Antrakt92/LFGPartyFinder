@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.4 - 28-Nov-2026 — Nearby zones and roster fixes
+
+- Nearby recognizes more dungeon entrance areas, including Moonbrook for Deadmines and Dun Morogh for Hall of Thanes.
+- Search and listing wait for the complete dungeon selection. Existing results and typed listing comments survive temporary data gaps.
+- Group cards keep known class colors when individual roles are unavailable. Class exclusions use aggregate counts only when they agree with the visible roster.
+
 ## 1.4.3 - 27-Nov-2026 — City of Dalaran proximity
 
 - When searching for City of Dalaran, players in Dalaran and Hillsbrad Foothills now appear as nearby. Players in Dalaran itself get the highest priority.
