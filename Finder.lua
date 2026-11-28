@@ -482,7 +482,12 @@ local function StandardRoster(members, count, activity, counts)
     local buckets = { {}, {}, {} }
     for _, member in ipairs(members) do
         local bucket = buckets[member.role]
-        if bucket then bucket[#bucket + 1] = member end
+        if bucket then
+            bucket[#bucket + 1] = member
+        elseif addon.knownClasses[member.class] then
+            -- Keep the known class in the unslotted roster if its role is unknown.
+            return
+        end
     end
 
     -- Publish a role placeholder only when the native vacancy count and the

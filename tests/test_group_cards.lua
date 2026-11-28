@@ -169,6 +169,15 @@ assert(lines:find("Damage · Leader · Mage (leader)", 1, true))
 detailed.action.scripts.OnEnter(detailed.action)
 assert(tooltip[#tooltip] == "Ask to Join")
 
+roster[2].assignedRole = "NONE"
+search()
+events.scripts.OnEvent(events, "LFG_LIST_SEARCH_RESULTS_RECEIVED")
+assert(slots[4].unknownRole:IsVisible() and slots[4].classBar:IsVisible()
+    and not slots[5]:IsVisible(), "a known class stays visible when its individual role is unknown")
+local red, green, blue = unpack(slots[4].classBar.textureColor)
+assert(red == RAID_CLASS_COLORS.MAGE.r and green == RAID_CLASS_COLORS.MAGE.g and blue == RAID_CLASS_COLORS.MAGE.b)
+roster[2].assignedRole = "DAMAGER"
+
 C_LFGList.GetSearchResultPlayerInfo = function() end
 search()
 events.scripts.OnEvent(events, "LFG_LIST_SEARCH_RESULTS_RECEIVED")

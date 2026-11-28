@@ -499,9 +499,8 @@ for _, index in ipairs({ 3, 5, 6 }) do
     assert(not addon.groups[index].rosterSlots, "incompatible role evidence cannot invent vacancies")
 end
 local partial = addon.groups[4]
-assert(partial.rosterSlots[5].role == 3 and not partial.rosterSlots[5].vacant and not partial.rosterSlots[5].class
-    and not partial.members[4].role and partial.members[4].class == "MAGE",
-    "complete native totals show an anonymous occupied slot without guessing the unknown member's role")
+assert(not partial.rosterSlots and not partial.members[4].role and partial.members[4].class == "MAGE",
+    "a known class with an unreadable role stays visible without guessing its slot")
 local matches = addon.FilterGroups(addon.groups, {}, { tank = true, dps = true })
 assert(#matches == 1 and matches[1] == second, "Fits me matches any selected role with a native vacancy")
 matches = addon.FilterGroups(addon.groups, {}, { healer = true })
