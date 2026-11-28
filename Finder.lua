@@ -515,23 +515,35 @@ local function GroupHasSpace(count, activities)
 end
 
 local function GroupClassSummary(members, counts, memberCount)
-    local classes, knownMembers, countedMembers = {}, 0, 0
+    local classes, observed, knownMembers = {}, {}, 0
     for _, member in ipairs(members) do
-        if addon.knownClasses[member.class] then
-            classes[member.class] = true
+        local class = member.class
+        if addon.knownClasses[class] then
+            classes[class] = true
+            observed[class] = (observed[class] or 0) + 1
             knownMembers = knownMembers + 1
         end
     end
-    if counts then
-        for class in pairs(addon.knownClasses) do
-            local count = read(counts[class], "number")
-            if count and count > 0 and count <= memberCount and count % 1 == 0 then
-                classes[class] = true
-                countedMembers = countedMembers + count
-            end
+    if not counts or knownMembers == memberCount then return classes, knownMembers == memberCount end
+
+    local countedMembers, consistent = 0, true
+    for class in pairs(addon.knownClasses) do
+        local raw = counts[class]
+        local count = read(raw, "number")
+        if count == nil then
+            if not canaccessvalue(raw) or raw ~= nil then consistent = false end
+            count = 0
+        elseif count < 0 or count > memberCount or count % 1 ~= 0 then
+            consistent = false
+            count = 0
         end
+        -- Aggregate data only fills gaps in a partial roster if it includes
+        -- each visible member's class.
+        if count < (observed[class] or 0) then consistent = false end
+        if count > 0 then classes[class] = true end
+        countedMembers = countedMembers + count
     end
-    return classes, knownMembers == memberCount or countedMembers == memberCount
+    return classes, consistent and countedMembers == memberCount
 end
 
 local function ResultSnapshot()

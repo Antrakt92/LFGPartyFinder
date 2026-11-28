@@ -740,4 +740,27 @@ C_LFGList.GetActivityGroupInfo = function() return "Dungeons", 0 end
 local _, completeGroupData = addon.Activities()
 assert(completeGroupData, "a populated group and permitted empty short names produce a complete catalog")
 
+selectDungeons(10)
+result(108, "Changing roster", 10)
+results[108].numMembers = 3
+local classRows, classCounts = { "MAGE" }, { WARRIOR = 3 }
+C_LFGList.GetSearchResultLeaderInfo = function() return {} end
+C_LFGList.GetSearchResultMemberCounts = function() return classCounts end
+C_LFGList.GetSearchResultPlayerInfo = function(_, index)
+    if classRows[index] then return { classFilename = classRows[index] } end
+end
+local function excludesClass(class)
+    assert(addon.Search())
+    receive(108)
+    assert(#addon.groups == 1)
+    return #addon.FilterGroups(addon.groups, {}, nil, {[class] = true}) == 1
+end
+assert(not excludesClass("HUNTER"), "contradictory aggregate counts cannot prove class absence with a partial roster")
+classCounts = { MAGE = 1, WARRIOR = 2 }
+assert(excludesClass("HUNTER") and not excludesClass("WARRIOR"), "consistent aggregate counts fill missing roster data")
+classCounts.HUNTER = restrictedActivity
+assert(not excludesClass("HUNTER"), "an unreadable class count cannot prove class absence")
+classRows, classCounts = { "MAGE", "MAGE", "WARRIOR" }, { HUNTER = 1, MAGE = 1, WARRIOR = 1 }
+assert(excludesClass("HUNTER") and not excludesClass("MAGE"), "a complete roster determines the classes")
+
 print("Passed search ownership, late results, queued changes, refresh isolation, DB normalization and retry bounds")
