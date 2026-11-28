@@ -16,9 +16,24 @@ local entrances = {
     [33] = {1421}, [34] = {1453}, [36] = {1436}, [43] = {1413}, [47] = {1413}, [48] = {1440},
     [70] = {1418}, [90] = {1426}, [109] = {1435}, [129] = {1413}, [189] = {1420}, [209] = {1446},
     [229] = {1427, 1428}, [230] = {1427, 1428}, [289] = {1422}, [329] = {1423}, [349] = {1443},
-    [389] = {1454}, [429] = {1444}, [2959] = {1416, 1421}, [2970] = {1434}, [2974] = {1447},
+    [389] = {1454}, [429] = {1444}, [2784] = {1440}, [2875] = {1430},
+    [2959] = {1416, 1421}, [2970] = {1434}, [2974] = {1447},
     [2994] = {1445}, [2998] = {1437}, [2999] = {1420, 1458}, [3001] = {1449}, [3039] = {2548},
     [3065] = {1455},
+}
+
+-- Area IDs cover names that differ from the instance or its surrounding map.
+local nearbyAreas = {
+    [34] = { [717] = 1 }, -- The Stockade
+    [36] = { [1581] = 1, [20] = 2 }, -- The Deadmines and Moonbrook
+    [48] = { [414] = 2 }, -- The Zoram Strand
+    [229] = { [25] = 2 }, -- Blackrock Mountain
+    [230] = { [25] = 2 },
+    [349] = { [607] = 2 }, -- Valley of Spears
+    [2959] = { [279] = 1, [16558] = 1, [267] = 3 }, -- Dalaran and Hillsbrad Foothills
+    [2994] = { [2079] = 2 }, -- Alcaz Island
+    [2998] = { [118] = 2, [16876] = 2 }, -- Whelgar's Excavation Site
+    [3065] = { [1] = 3 }, -- Dun Morogh approach outside Ironforge
 }
 
 function addon.Read(value, kind)
@@ -46,14 +61,13 @@ function addon.ActivityZones(activity, faction)
         local map = read(C_Map.GetMapInfo(id), "table")
         if map then add(map.name, 2) end
     end
-    if mapID == 229 or mapID == 230 then
-        add(C_Map.GetAreaInfo(25), 2) -- Blackrock Mountain
-    elseif mapID == 90 and faction == "Horde" then
+    if nearbyAreas[mapID] then
+        for areaID, rank in pairs(nearbyAreas[mapID]) do
+            add(C_Map.GetAreaInfo(areaID), rank)
+        end
+    end
+    if mapID == 90 and faction == "Horde" then
         add(C_Map.GetAreaInfo(35), 3) -- Scooty's transporter in Booty Bay
-    elseif mapID == 2959 then
-        add(C_Map.GetAreaInfo(279), 1) -- Dalaran in the open world
-        add(C_Map.GetAreaInfo(16558), 1) -- Dalaran inside the instance
-        add(C_Map.GetAreaInfo(267), 3) -- Hillsbrad Foothills approach
     end
     return zones
 end

@@ -5,16 +5,21 @@ function canaccessvalue(value) return value ~= restricted end
 assert(loadfile((arg[1] or ".") .. "/Data.lua"))("PartyFinderForever", addon)
 
 local maps = {
-    [1420] = "Tirisfal Glades", [1426] = "Dun Morogh", [1427] = "Searing Gorge", [1428] = "Burning Steppes",
-    [1416] = "Alterac Mountains", [1421] = "Silverpine Forest", [1437] = "Wetlands", [1455] = "Ironforge",
+    [1416] = "Alterac Mountains", [1420] = "Tirisfal Glades", [1421] = "Silverpine Forest", [1426] = "Dun Morogh",
+    [1427] = "Searing Gorge", [1428] = "Burning Steppes", [1430] = "Deadwind Pass", [1437] = "Wetlands",
+    [1440] = "Ashenvale", [1455] = "Ironforge",
 }
 local instances = {
+    [34] = "Stormwind Stockade", [36] = "Deadmines",
     [90] = "Gnomeregan", [189] = "Scarlet Monastery", [229] = "Blackrock Spire",
     [2959] = "City of Dalaran", [2998] = "Excavation Site: Wetlands", [3065] = "Hall of Thanes",
 }
 local areas = {
-    [25] = "Blackrock Mountain", [35] = "Booty Bay", [267] = "Hillsbrad Foothills",
-    [279] = "Dalaran", [16558] = "Dalaran",
+    [1] = "Dun Morogh", [20] = "Moonbrook", [25] = "Blackrock Mountain", [35] = "Booty Bay",
+    [118] = "Whelgar's Excavation Site", [267] = "Hillsbrad Foothills", [279] = "Dalaran",
+    [414] = "The Zoram Strand", [607] = "Valley of Spears", [717] = "The Stockade",
+    [1581] = "The Deadmines", [2079] = "Alcaz Island", [16558] = "Dalaran",
+    [16876] = "Whelgar's Excavation Site",
 }
 C_Map = {
     GetMapInfo = function(id) return maps[id] and { name = maps[id] } end,
@@ -47,6 +52,32 @@ assert(localizedDalaran.Dalaran == nil)
 assert(zones(2998, "Excavation Site: Wetlands").Wetlands == 2)
 assert(zones(3065, "Hall of Thanes").Ironforge == 2)
 assert(zones(restricted, "An unknown dungeon")["An unknown dungeon"] == 1)
+
+for _, case in ipairs({
+    { 34, "Stormwind Stockades", "The Stockade", 1 },
+    { 36, "Deadmines", "The Deadmines", 1 },
+    { 36, "Deadmines", "Moonbrook", 2 },
+    { 48, "Blackfathom Deeps", "The Zoram Strand", 2 },
+    { 349, "Maraudon", "Valley of Spears", 2 },
+    { 2784, "Demon Fall Canyon", "Ashenvale", 2 },
+    { 2875, "Karazhan Crypts", "Deadwind Pass", 2 },
+    { 2994, "Alcaz Prison", "Alcaz Island", 2 },
+    { 2998, "Excavation Site: Wetlands", "Whelgar's Excavation Site", 2 },
+    { 3065, "Hall of Thanes", "Dun Morogh", 3 },
+}) do
+    local mapID, name, area, expectedRank = unpack(case)
+    local catalog = { [10] = { zones = zones(mapID, name) } }
+    local rank, matches = addon.Proximity({ 10 }, area, catalog)
+    assert(matches and rank == expectedRank, name .. " should recognize " .. area)
+    assert(addon.Proximity({ 10 }, "Stormwind Harbor", catalog) == nil)
+end
+areas[118] = nil
+assert(zones(2998, "Excavation Site: Wetlands")["Whelgar's Excavation Site"] == 2)
+areas[717] = "Тюрьма"
+assert(zones(34, "Тюрьма Штормграда")["Тюрьма"] == 1)
+areas[717] = restricted
+local unknownStockadeArea = zones(34, "Stormwind Stockades")
+assert(unknownStockadeArea[restricted] == nil and unknownStockadeArea["Stormwind Stockades"] == 1)
 
 local selected = { [1] = { zones = zones(189, "Scarlet Graveyard") }, [2] = { zones = horde } }
 local rank, matches = addon.Proximity({ 2, restricted, 1 }, "Scarlet Monastery", selected)
