@@ -67,7 +67,9 @@ local groupSize, combat = 2, false
 function GetNumGroupMembers() return groupSize end
 function InCombatLockdown() return combat end
 local activityInfo = C_LFGList.GetActivityInfoTable
+local partialDungeons = false
 function C_LFGList.GetActivityInfoTable(id)
+    if partialDungeons and id == 3 then return end
     local info = activityInfo(id)
     if info then info.maxNumPlayers = 5 end
     return info
@@ -150,6 +152,12 @@ assert(redStatus())
 local createListing = C_LFGList.CreateListing
 local clearCreationFields = C_LFGList.ClearCreationTextFields
 local writesBeforeMissingCreate = roleWrites
+partialDungeons = true
+local partialListing, partialReason = addon.CreateListing()
+assert(partialListing == false and partialReason == "Wait for the dungeon list to load before listing."
+    and #publications == 0 and not cleared and roleWrites == writesBeforeMissingCreate,
+    "a partial catalog cannot silently post only the available dungeon or mutate the native form")
+partialDungeons = false
 C_LFGList.CreateListing = nil
 local available, unavailableReason = addon.CreateListing()
 assert(available == false and unavailableReason and not cleared and roleWrites == writesBeforeMissingCreate,
@@ -254,13 +262,15 @@ rejectRemoval = false
 addon.db.activities = {}
 addon.SelectionChanged()
 assert(find("Button", "Unlist") == submit, "the active listing can be removed without a search selection")
+partialDungeons = true
 submit.scripts.OnClick(submit)
-assert(removals == 2 and not submit.enabled and greenStatus())
+assert(removals == 2 and not submit.enabled and greenStatus(), "unlisting does not require the dungeon catalog")
 submit.scripts.OnClick(submit)
 assert(removals == 2, "pending removal blocks duplicate requests")
 active = false
 finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_ACTIVE_ENTRY_UPDATE")
 assert(not submit:IsVisible())
+partialDungeons = false
 addon.db.activities = { [1] = true, [3] = true }
 addon.SelectionChanged()
 assert(find("Button", "List Me") == submit and submit.enabled)
@@ -331,6 +341,7 @@ active, grouped = false, false
 local nativeActivities, focused, style, nativeCategory = {}, false, nil, nil
 local nativeComment, commentChanged, nativeHidden, nativeShown = ""
 local viewVisible = true
+local enforceStockActivityReads = false
 local edit = {
     IsEnabled = function() return true end,
     SetFocus = function() focused = true end,
@@ -351,11 +362,18 @@ LFGListingFrame = {
     IsVisible = function() return true end,
     LoadSoloRoles = function() end,
     UpdatePostButtonEnableState = function(self)
+        if enforceStockActivityReads and grouped and self.dirty then
+            for _, id in ipairs(nativeActivities) do
+                assert(C_LFGList.GetActivityInfoTable(id).maxNumPlayers,
+                    "the stock party Post recheck requires complete selected activity details")
+            end
+        end
         if self.PostButton then self.PostButton:SetEnabled(self.dirty == true and (active or self:IsAnyActivitySelected())) end
     end,
     UpdateBackButtonEnableState = function(self) self.BackButton:SetEnabled(self.activitiesView == true) end,
     RemoveListing = function() C_LFGList.RemoveListing() end,
     activitiesView = true,
+    activities = {},
     selectedActivities = 0,
     IsAnyActivitySelected = function() return #nativeActivities > 0 end,
     IsActivitySelected = function(_, id)
@@ -363,19 +381,32 @@ LFGListingFrame = {
     end,
     GetCategorySelection = function() return nativeCategory end,
     ClearCategorySelection = function(self) self:SetCategorySelection(nil) end,
-    SetDirty = function(self, dirty) self.dirty = dirty end,
+    SetDirty = function(self, dirty)
+        self.dirty = dirty
+        if enforceStockActivityReads then self:UpdatePostButtonEnableState() end
+    end,
     SetAllActivities = function(self, selected)
         assert(not selected)
+        if enforceStockActivityReads then self:UpdatePostButtonEnableState() end
         self.selectedActivities = self.selectedActivities - #nativeActivities
         nativeActivities = {}
+        self.activities = {}
     end,
     SetCategorySelection = function(self, category)
+        if enforceStockActivityReads and category then
+            for _, id in ipairs(C_LFGList.GetAvailableActivities(category)) do
+                assert(C_LFGList.GetActivityInfoTable(id).minLevelSuggestion,
+                    "the stock category change reads each available activity")
+            end
+        end
         nativeCategory = category
         nativeActivities = {}
+        self.activities = {}
     end,
     SetActivity = function(self, id, selected)
         if selected then
             nativeActivities[#nativeActivities + 1] = id
+            self.activities[id] = true
             self.selectedActivities = self.selectedActivities + 1
             self.dirty = true
         end
@@ -580,6 +611,17 @@ LFGListingFrame:SetDirty(false)
 nativeComment = ""
 C_LFGListRoles.SetRoles({ tank = false, healer = true, dps = false }, false)
 
+partialDungeons = true
+settings.scripts.OnClick()
+assertRestored()
+assert(find("FontString", "Wait for the dungeon list to load before listing.")
+    and not find("Button", "Open comment field") and nativeCategory == nil,
+    "settings waits for all selected dungeons before borrowing the native form")
+partialDungeons = false
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_AVAILABILITY_UPDATE")
+assert(find("Button", "Open comment field"), "the comment form becomes available when the catalog recovers")
+find("Button", "Players").scripts.OnClick()
+
 settings.scripts.OnClick()
 assertInline()
 assert(not focused and not addon.db.listingComment and #publications == directPublications,
@@ -591,6 +633,20 @@ nativeComment = "First run, please wait for mana."
 commentChanged(edit, true)
 local savedDraft = nativeComment
 assert(addon.db.listingComment == savedDraft)
+partialDungeons = true
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_AVAILABILITY_UPDATE")
+assertInline()
+assert(not actualPost.enabled and nativeComment == savedDraft and #nativeActivities == 2)
+LFGListingFrame:UpdatePostButtonEnableState()
+assert(not actualPost.enabled, "a native enable-state update cannot bypass the catalog lock")
+local clicksBeforePartialRead = nativePostClicks
+clickNativePost()
+assert(nativePostClicks == clicksBeforePartialRead, "a mounted draft cannot post while the catalog is incomplete")
+partialDungeons = false
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_AVAILABILITY_UPDATE")
+assertInline()
+assert(actualPost.enabled and nativeComment == savedDraft,
+    "recovery unlocks the same form without losing the typed draft")
 actualComment:ClearAllPoints()
 actualComment:SetPoint("BOTTOM", 0, 42)
 nativeShown()
@@ -603,6 +659,64 @@ assert(nativeCategory == nil and #nativeActivities == 0 and not LFGListingFrame.
 assert(LFGListingFrame.selectedActivities == 0, "restoring the blank category must also release its activity count")
 assert(nativeRoles.healer and not nativeRoles.tank and style == nil
     and LFGListingFrame.voiceMode == Enum.LFGEntryVoiceMode.Legacy, "abandoning the editor restores the borrowed native state")
+
+grouped, leader, enforceStockActivityReads = true, true, true
+local getAvailable = C_LFGList.GetAvailableActivities
+for _, withdrawn in ipairs({ false, true }) do
+    settings.scripts.OnClick()
+    assertInline()
+    nativeComment = "Keep this until the native catalogue recovers."
+    commentChanged(edit, true)
+    partialDungeons = true
+    finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_AVAILABILITY_UPDATE")
+    assertInline()
+    assert(not actualPost.enabled)
+    if withdrawn then
+        C_LFGList.GetAvailableActivities = function(...)
+            local available = {}
+            for _, id in ipairs(getAvailable(...)) do
+                if id ~= 3 then available[#available + 1] = id end
+            end
+            return available
+        end
+        finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_AVAILABILITY_UPDATE")
+    end
+    find("Button", "Players").scripts.OnClick()
+    assertRestored()
+    assert(nativeComment == "" and nativeCategory == nil and #nativeActivities == 0,
+        "grouped cleanup releases the borrowed draft even with an unreadable or withdrawn dungeon")
+    C_LFGList.GetAvailableActivities, partialDungeons = getAvailable, false
+end
+grouped, enforceStockActivityReads = false, false
+addon.db.listingComment = savedDraft
+
+local getInfo, getCategory = C_LFGList.GetActivityInfoTable, C_LFGList.GetLfgCategoryInfo
+local otherCategoryReady = true
+C_LFGList.GetLfgCategoryInfo = function() return {} end
+C_LFGList.GetAvailableActivities = function(category, ...)
+    if category == 9 then return { 90 } end
+    return getAvailable(category, ...)
+end
+C_LFGList.GetActivityInfoTable = function(id)
+    if id ~= 90 then return getInfo(id) end
+    if otherCategoryReady then return { minLevelSuggestion = 0, maxLevelSuggestion = 0, maxNumPlayers = 0 } end
+end
+enforceStockActivityReads = true
+LFGListingFrame:SetCategorySelection(9)
+settings.scripts.OnClick()
+assertInline()
+otherCategoryReady = false
+find("Button", "Players").scripts.OnClick()
+assertRestored()
+assert(nativeCategory == addon.dungeonCategory and #nativeActivities == 2,
+    "a different original category waits for its own missing data before native re-selection")
+otherCategoryReady = true
+finderEvents.scripts.OnEvent(finderEvents, "LFG_LIST_AVAILABILITY_UPDATE")
+assert(nativeCategory == 9 and #nativeActivities == 0)
+LFGListingFrame:ClearCategorySelection()
+C_LFGList.GetActivityInfoTable, C_LFGList.GetLfgCategoryInfo = getInfo, getCategory
+C_LFGList.GetAvailableActivities = getAvailable
+enforceStockActivityReads = false
 
 local setActivity = LFGListingFrame.SetActivity
 LFGListingFrame.SetActivity = function() error("activity changed during setup") end

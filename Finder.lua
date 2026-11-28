@@ -827,7 +827,7 @@ function addon.CanManageListing(grouped)
         read(UnitIsGroupLeader("player", LE_PARTY_CATEGORY_HOME), "boolean") == true)
 end
 
-function addon.CanCreateListing(activities, ownPending)
+function addon.CanCreateListing(activities, catalogComplete, ownPending)
     if InCombatLockdown() then return nil, "Finish combat before listing." end
     local grouped, active, waiting = addon.ListingState()
     if (waiting and waiting ~= ownPending) or active ~= false then
@@ -836,6 +836,7 @@ function addon.CanCreateListing(activities, ownPending)
     if not addon.CanManageListing(grouped) then
         return nil, "Only the party leader can list the group."
     end
+    if not catalogComplete then return nil, "Wait for the dungeon list to load before listing." end
     if #activities == 0 then return nil, "Choose a dungeon first." end
     local max = Constants and Constants.LFGConstsExposed and Constants.LFGConstsExposed.GROUP_FINDER_MAX_ACTIVITY_CAPACITY
     if max and #activities > max then return nil, "Too many dungeons selected." end
@@ -939,8 +940,8 @@ function addon.RemoveListing()
 end
 
 function addon.CreateListing()
-    local activities = addon.SelectedActivities()
-    local allowed, reason = addon.CanCreateListing(activities)
+    local activities, _, catalogComplete = addon.SelectedActivities()
+    local allowed, reason = addon.CanCreateListing(activities, catalogComplete)
     if not allowed then return false, reason end
     local create = C_LFGList.CreateListing
     local clear = C_LFGList.ClearCreationTextFields

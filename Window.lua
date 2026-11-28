@@ -7,7 +7,7 @@ local window, nativeLauncher
 local commentEdit, commentPost, commentListing, nativeDraft, inlineComposer
 local pendingPostButton, pendingBackButton
 local deferredNativeDraft, deferredComposer
-local OpenListingDetails, RefreshCommentEditor
+local OpenListingDetails, RefreshCommentEditor, RestoreDeferredNativeDraft
 local openingNativeFromAddon
 local classPage, classPageCount = 1, 1
 local parts = {}
@@ -683,19 +683,40 @@ local function RenderResults()
     parts.resetFilters:SetShown(canResetFilters)
 end
 
+local function NativePartyActivitiesReadable(listing)
+    local activities = read(listing.activities, "table")
+    if not activities then return false end
+    for id, selected in pairs(activities) do
+        local checked = read(selected, "boolean")
+        if checked == nil then return false end
+        if checked then
+            local activityID = read(id, "number")
+            local info = activityID and read(C_LFGList.GetActivityInfoTable(activityID), "table")
+            if not info or read(info.maxNumPlayers, "number") == nil then return false end
+        end
+    end
+    return true
+end
+
 local function RefreshNativePostPending()
     local listing = LFGListingFrame
     local post = listing and listing.PostButton
     if not post or post ~= commentPost then return end
     if InCombatLockdown() then return end
-    local _, active, waiting = addon.ListingState()
-    if waiting then
+    local grouped, active, waiting = addon.ListingState()
+    local loading = inlineComposer and inlineComposer.dungeonsLoading and nativeDraft and nativeDraft.listing == listing
+    local blocked = waiting or loading
+    if not blocked and pendingPostButton == post then
+        blocked = grouped ~= false and listing.dirty and not NativePartyActivitiesReadable(listing)
+        if not blocked then
+            pendingPostButton = nil
+            -- Recompute native permissions, comment validity and dirty state.
+            listing:UpdatePostButtonEnableState()
+        end
+    end
+    if blocked then
         pendingPostButton = post
         post:SetEnabled(false)
-    elseif pendingPostButton == post then
-        pendingPostButton = nil
-        -- Recompute native permissions, comment validity and dirty state.
-        listing:UpdatePostButtonEnableState()
     end
     local back = listing.BackButton
     if waiting and active == true and back then
@@ -718,6 +739,7 @@ local function SameActivityMenuEntries(previous, current)
 end
 
 function addon.Refresh()
+    if deferredNativeDraft and not InCombatLockdown() then RestoreDeferredNativeDraft() end
     RefreshNativePostPending()
     if not window or not window:IsVisible() then return end
     parts.results:SetShown(currentView == "players" or currentView == "groups")
@@ -779,7 +801,7 @@ function addon.Refresh()
     local label = activities[1] and activities[1].name or "Choose dungeons"
     if #activities > 1 then label = label .. " +" .. (#activities - 1) end
     parts.activity:OverrideText(label)
-    if currentView == "settings" then RefreshCommentEditor(activities) end
+    if currentView == "settings" then RefreshCommentEditor(activities, complete) end
     local showListing = currentView ~= "settings" and (#activities > 0 or active == true or waiting ~= nil)
     parts.listingControls:SetShown(showListing)
     parts.myRoles:SetShown(currentView == "groups" or (showListing and grouped == false))
@@ -972,27 +994,55 @@ local function RestoreNativeDraft(draft)
     if draft.prepared and (not NativeDraftMatches(listing, draft.data)
         or not NativeDraftRolesMatch(draft.roles)
         or comment ~= draft.text) then return end
+    -- Stock checks each selected activity while dirty, even when we are
+    -- removing an activity that has just disappeared from the catalog.
+    local wasDirty = listing.dirty
+    listing:SetDirty(false)
     if comment ~= "" then
         local cleared = pcall(C_LFGList.ClearCreationTextFields)
-        if not cleared or addon.NativeListingComment() ~= "" then return end
+        if not cleared or addon.NativeListingComment() ~= "" then
+            if wasDirty and (grouped == false or NativePartyActivitiesReadable(listing)) then listing:SetDirty(true) end
+            return
+        end
     end
     addon.RestoreListingRoleDraft(draft.roleChange)
     listing:SetAllActivities(false)
-    if before.category then
+    if before.category and before.category ~= category then
         listing:SetCategorySelection(before.category)
-    else
+    elseif not before.category then
         listing:ClearCategorySelection()
     end
     RestoreNativeDraftOptions(listing, before)
-    listing:SetDirty(false)
+end
+
+local function CanRestoreNativeCategory(category)
+    if not category or category == addon.dungeonCategory then return true end
+    if not read(C_LFGList.GetLfgCategoryInfo(category), "table") then return false end
+    local available = read(C_LFGList.GetAvailableActivities(category), "table")
+    if not available then return false end
+    for _, value in ipairs(available) do
+        local id = read(value, "number")
+        local info = id and read(C_LFGList.GetActivityInfoTable(id), "table")
+        if not info or not read(info.minLevelSuggestion, "number") or not read(info.maxLevelSuggestion, "number") then
+            return false
+        end
+    end
+    return true
 end
 
 local function ReleaseNativeDraft(draft)
-    if InCombatLockdown() then
-        deferredNativeDraft = draft
-    else
+    if not draft.original or draft.postAttempted then return end
+    if not InCombatLockdown() and CanRestoreNativeCategory(draft.original.category) then
         RestoreNativeDraft(draft)
+    else
+        deferredNativeDraft = draft
     end
+end
+
+RestoreDeferredNativeDraft = function()
+    local draft = deferredNativeDraft
+    deferredNativeDraft = nil
+    ReleaseNativeDraft(draft)
 end
 
 function addon.EndNativeDraft()
@@ -1135,8 +1185,8 @@ OpenListingDetails = function(focus)
     parts.commentFallback:Hide()
     parts.commentRetry:Hide()
     parts.commentBlocked = nil
-    local activities = addon.SelectedActivities()
-    local allowed, reason = addon.CanCreateListing(activities)
+    local activities, _, catalogComplete = addon.SelectedActivities()
+    local allowed, reason = addon.CanCreateListing(activities, catalogComplete)
     if not allowed then
         parts.commentHint:SetText(reason)
         parts.commentBlocked = true
@@ -1163,7 +1213,7 @@ OpenListingDetails = function(focus)
     local category = listing:GetCategorySelection()
     local data = addon.ListingData(activities)
     local friendlyButton = listing.NewPlayerFriendlyButton and listing.NewPlayerFriendlyButton.CheckButton
-    local draft = { edit = edit, listing = listing, data = data, grouped = grouped,
+    local draft = { edit = edit, listing = listing, data = data, grouped = grouped, activities = activities,
         roles = grouped == false and roles or nil, text = "" }
     local nativeComment = addon.NativeListingComment()
     local occupied = listing.dirty or listing:IsAnyActivitySelected() or nativeComment ~= ""
@@ -1204,7 +1254,7 @@ OpenListingDetails = function(focus)
             return NativeDraftMatches(listing, data) and NativeDraftRolesMatch(draft.roles)
         end)
         if not ok or not prepared then
-            pcall(RestoreNativeDraft, draft)
+            pcall(ReleaseNativeDraft, draft)
             parts.commentHint:SetText("WoW could not prepare the listing form.")
             parts.commentFallback:Show()
             return
@@ -1217,7 +1267,7 @@ OpenListingDetails = function(focus)
             commentListing = listing
             hooksecurefunc(listing, "UpdatePostButtonEnableState", function(self)
                 if nativeDraft and nativeDraft.listing == self and inlineComposer then
-                    RefreshCommentEditor(addon.SelectedActivities())
+                    RefreshCommentEditor()
                 end
             end)
         end
@@ -1242,7 +1292,7 @@ OpenListingDetails = function(focus)
                     addon.EndNativeDraft()
                     parts.commentHint:SetText("WoW refreshed the listing form.")
                     parts.commentBlocked = true
-                    RefreshCommentEditor(addon.SelectedActivities())
+                    RefreshCommentEditor()
                 end
             end)
             view:HookScript("OnHide", function()
@@ -1256,7 +1306,7 @@ OpenListingDetails = function(focus)
                     if wasInline and window:IsVisible() and currentView == "settings" then
                         parts.commentHint:SetText("WoW refreshed the listing form.")
                         parts.commentBlocked = true
-                        RefreshCommentEditor(addon.SelectedActivities())
+                        RefreshCommentEditor()
                     end
                 end)
             end)
@@ -1267,39 +1317,57 @@ OpenListingDetails = function(focus)
                 nativeDraft = draft
                 if focus then edit:SetFocus() end
             else
-                RestoreNativeDraft(draft)
+                ReleaseNativeDraft(draft)
                 parts.commentHint:SetText("Open the Blizzard form to add a comment.")
                 parts.commentFallback:Show()
             end
         else
-            RestoreNativeDraft(draft)
+            ReleaseNativeDraft(draft)
             parts.commentHint:SetText("WoW has disabled the comment field for this listing.")
         end
     else
-        RestoreNativeDraft(draft)
+        ReleaseNativeDraft(draft)
         parts.commentHint:SetText("WoW's comment field is unavailable.")
     end
 end
 
-RefreshCommentEditor = function(activities)
+RefreshCommentEditor = function(activities, catalogComplete)
+    if not inlineComposer and not parts.commentBlocked then return end
+    if not activities then
+        local _
+        activities, _, catalogComplete = addon.SelectedActivities()
+    end
     if inlineComposer and nativeDraft then
         local grouped, _, waiting = addon.ListingState()
         local ownPending = waiting and waiting.onRefused and waiting.onRefused == nativeDraft.onRefused and waiting
-        local allowed, reason = addon.CanCreateListing(activities, ownPending)
+        -- Keep an otherwise valid draft visible during partial reads, with Post disabled.
+        local selected = catalogComplete and activities or nativeDraft.activities
+        local allowed, reason = addon.CanCreateListing(selected, true, ownPending)
+        local loading = not catalogComplete
+        if loading and not inlineComposer.dungeonsLoading then
+            inlineComposer.dungeonsLoading = true
+            RefreshNativePostPending()
+        end
         local ids = nativeDraft.data.activityIDs
-        local changed = #activities ~= #ids
-        for index, activity in ipairs(activities) do
+        local changed = #selected ~= #ids
+        for index, activity in ipairs(selected) do
             if activity.id ~= ids[index] then changed = true; break end
         end
         if allowed and (not nativeDraft.onRefused or ownPending) and not changed and grouped == nativeDraft.grouped
             and NativeDraftMatches(nativeDraft.listing, nativeDraft.data)
-            and NativeDraftRolesMatch(nativeDraft.roles) then return end
+            and NativeDraftRolesMatch(nativeDraft.roles) then
+            if not loading and inlineComposer.dungeonsLoading then
+                inlineComposer.dungeonsLoading = nil
+                RefreshNativePostPending()
+            end
+            return
+        end
         addon.EndNativeDraft()
         parts.commentHint:SetText(reason or "Listing selections changed.")
         parts.commentBlocked = true
     end
     if parts.commentBlocked then
-        local allowed, reason = addon.CanCreateListing(activities)
+        local allowed, reason = addon.CanCreateListing(activities, catalogComplete)
         parts.commentHint:SetText(allowed and "Open the comment field to continue." or reason)
         parts.commentRetry:SetShown(allowed == true)
     end
@@ -1915,9 +1983,6 @@ loader:SetScript("OnEvent", function(self, event, addonName)
                 RestoreCommentControls(deferredComposer)
                 deferredComposer = nil
             end
-            local draft = deferredNativeDraft
-            deferredNativeDraft = nil
-            RestoreNativeDraft(draft)
             addon.Refresh()
         end
         SearchOnFirstOpen()
